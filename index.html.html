@@ -1,0 +1,2352 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ADN Riesgos · Ruta de Aprendizaje</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --page: #071330;
+      --panel: #0a173a;
+      --cyan: #26d6ff;
+      --green: #31d624;
+      --white: #f8fbff;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 72% 16%, rgba(38, 214, 255, 0.22), transparent 28%),
+        linear-gradient(180deg, #071330 0%, #040916 100%);
+      font-family: "Trebuchet MS", Arial, sans-serif;
+    }
+
+    body {
+      display: grid;
+      place-items: center;
+    }
+
+    .stage {
+      width: min(100vw, 160vh);
+      height: min(100vh, 62.5vw);
+      max-width: 1440px;
+      max-height: 900px;
+      aspect-ratio: 16 / 10;
+      background: #000;
+      box-shadow: 0 24px 70px rgba(0, 0, 0, 0.45);
+      position: relative;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      outline: none;
+      image-rendering: auto;
+      background: #000;
+    }
+
+    .asset-status {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      color: var(--white);
+      background: var(--page);
+      font-weight: 700;
+      letter-spacing: 0;
+      pointer-events: none;
+      transition: opacity 220ms ease;
+    }
+
+    .asset-status.is-hidden {
+      opacity: 0;
+    }
+  </style>
+</head>
+<body>
+  <main class="stage" aria-label="Juego ADN Riesgos">
+    <canvas id="gameCanvas" width="1440" height="900" tabindex="0"></canvas>
+    <div id="assetStatus" class="asset-status">Cargando ADN Riesgos...</div>
+  </main>
+
+  <script src="./assets/questions.js"></script>
+  <script src="./assets/diploma-data.js"></script>
+  <script>
+  (() => {
+    "use strict";
+
+    const WIDTH = 1440;
+    const HEIGHT = 900;
+    const FPS = 60;
+    const FLOOR_Y = 690;
+    const WORLD_WIDTH = 6600;
+    const FLAG_X = 6140;
+    const GRAVITY = 0.52;
+    const MAX_FALL = 18;
+    const PLAYER_W = 40;
+    const PLAYER_H = 60;
+    const QUESTIONS_PER_LEVEL = 7;
+    const STORAGE_KEY = "adn_riesgos_best_html";
+
+    const PALETTE = {
+      ink: [7, 19, 48],
+      inkSoft: [22, 48, 111],
+      cyan: [38, 214, 255],
+      cyanDeep: [29, 125, 255],
+      green: [49, 214, 36],
+      greenDeep: [19, 154, 81],
+      gold: [255, 201, 75],
+      cream: [255, 248, 230],
+      soil: [116, 72, 46],
+      soilDark: [90, 52, 31],
+      white: [248, 251, 255],
+      correct: [141, 255, 176],
+      wrong: [255, 210, 194],
+      outline: [17, 17, 17],
+      fur: [225, 163, 65],
+      furLight: [242, 197, 111],
+      shirt: [121, 198, 26],
+      shirtDark: [74, 151, 17],
+      short: [37, 77, 152],
+      shortDark: [24, 56, 114],
+      skin: [219, 148, 68],
+      tongue: [216, 71, 101]
+    };
+
+    const FONTS = {
+      small: "18px 'Trebuchet MS', Arial, sans-serif",
+      body: "24px 'Trebuchet MS', Arial, sans-serif",
+      bodyBold: "700 24px 'Trebuchet MS', Arial, sans-serif",
+      title: "700 44px 'Trebuchet MS', Arial, sans-serif",
+      hero: "700 88px 'Trebuchet MS', Arial, sans-serif",
+      diplomaUser: "700 60px Arial, sans-serif",
+      diplomaCode: "700 40px Arial, sans-serif"
+    };
+
+    const LINE_HEIGHT = {
+      small: 22,
+      body: 30,
+      bodyBold: 30,
+      title: 52,
+      hero: 98,
+      diplomaUser: 70,
+      diplomaCode: 48
+    };
+
+    const LEVEL_ORDER = ["que_es_riesgo", "tratamiento", "continuidad"];
+
+    const LEVEL_META = {
+      que_es_riesgo: {
+        label: "Nivel 1",
+        title: "Gestión y evaluación del riesgo",
+        subtitle: "Riesgo, amenaza, vulnerabilidad, impacto y matriz 4x4.",
+        topic_label: "Riesgo y evaluación",
+        question_module: "que_es_riesgo",
+        difficulty: "basico",
+        risk_mix: ["bajo", "medio"],
+        banner: "Riesgo = Probabilidad x Impacto",
+        treatment: "reducir"
+      },
+      evaluacion: {
+        label: "Nivel 2",
+        title: "Evaluación",
+        subtitle: "Prioriza según probabilidad e impacto.",
+        topic_label: "Evaluación y matriz",
+        question_module: "evaluacion",
+        difficulty: "medio",
+        risk_mix: ["medio", "alto"],
+        banner: "Matriz 5x5 y apetito de riesgo",
+        treatment: "aceptar"
+      },
+      tratamiento: {
+        label: "Nivel 2",
+        title: "Tratamiento del riesgo",
+        subtitle: "Estrategias para decidir: evitar, reducir, transferir o aceptar.",
+        topic_label: "Tratamiento del riesgo",
+        question_module: "tratamiento",
+        difficulty: "medio",
+        risk_mix: ["medio", "alto"],
+        banner: "Los controles convierten evaluación en acción",
+        treatment: "transferir"
+      },
+      continuidad: {
+        label: "Nivel 3",
+        title: "Continuidad del Negocios",
+        subtitle: "BIA, RTO, RPO, activación, respuesta y recuperación.",
+        topic_label: "Continuidad del Negocios",
+        question_module: "continuidad",
+        difficulty: "alto",
+        risk_mix: ["alto"],
+        banner: "Prepararse antes del incidente mejora la respuesta",
+        treatment: "evitar"
+      }
+    };
+
+    const ENEMY_THEMES = {
+      error_humano: { label: "Error humano", body: [255, 186, 78], accent: [153, 84, 30] },
+      falla_tecnologica: { label: "Falla tecnológica", body: [92, 180, 255], accent: [25, 72, 147] },
+      ciberataque: { label: "Ciberataque", body: [183, 88, 255], accent: [83, 35, 128] },
+      exposicion_info: { label: "Exposición de información", body: [255, 119, 151], accent: [141, 34, 79] }
+    };
+
+    const TOOL_THEMES = {
+      reduce: { label: "Reducir", color: [61, 214, 118] },
+      transfer: { label: "Transferir", color: [80, 179, 255] },
+      accept: { label: "Aceptar", color: [255, 190, 85] },
+      avoid: { label: "Evitar", color: [170, 130, 255] }
+    };
+
+    const ASSET_PATHS = {
+      amanecer: "./assets/03-amanecer.png",
+      atardecer: "./assets/04-atardecer.png",
+      noche: "./assets/01-noche.png",
+      diploma: "./assets/05-diploma.png",
+      gofsi: "./assets/06-gofsi.png",
+      sprite: "./assets/07-gofsi_sprite_transparente.png"
+    };
+
+    function rgb(color) {
+      return `rgb(${color[0]}, ${color[1]}, ${color[2]})`;
+    }
+
+    function rgba(color, alpha) {
+      return `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${alpha})`;
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function rectsIntersect(a, b) {
+      return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    }
+
+    function pad(value, size) {
+      return String(Math.max(0, Math.floor(value))).padStart(size, "0");
+    }
+
+    function formatTime(seconds) {
+      const safe = Math.max(0, Math.floor(seconds));
+      return `${pad(Math.floor(safe / 60), 2)}:${pad(safe % 60, 2)}`;
+    }
+
+    function shuffle(items) {
+      const copy = items.slice();
+      for (let i = copy.length - 1; i > 0; i -= 1) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [copy[i], copy[j]] = [copy[j], copy[i]];
+      }
+      return copy;
+    }
+
+    function roundRect(ctx, x, y, w, h, radius, fillStyle, strokeStyle, lineWidth = 1) {
+      const r = Math.max(0, Math.min(radius, Math.abs(w) / 2, Math.abs(h) / 2));
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + w - r, y);
+      ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+      ctx.lineTo(x + w, y + h - r);
+      ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+      ctx.lineTo(x + r, y + h);
+      ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+      ctx.lineTo(x, y + r);
+      ctx.quadraticCurveTo(x, y, x + r, y);
+      ctx.closePath();
+      if (fillStyle) {
+        ctx.fillStyle = fillStyle;
+        ctx.fill();
+      }
+      if (strokeStyle) {
+        ctx.strokeStyle = strokeStyle;
+        ctx.lineWidth = lineWidth;
+        ctx.stroke();
+      }
+    }
+
+    function loadImage(src) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error(`No se pudo cargar ${src}`));
+        img.src = src;
+      });
+    }
+
+    function prepareSpriteFrames(img) {
+      const sheet = img;
+      const frameCount = 5;
+      const rawFrameW = Math.floor(sheet.width / frameCount);
+      const rawFrameH = sheet.height;
+      const safeMargin = 10;
+      const shiftLeft = 60;
+      const rawFrames = [];
+      const crop = { x: 26, y: 326, w: 278, h: 313 };
+
+      for (let index = 0; index < frameCount; index += 1) {
+        let sx = index * rawFrameW - shiftLeft + safeMargin;
+        let sw = rawFrameW - safeMargin * 2 - 8;
+        if (sx < 0) sx = 0;
+        if (sx + sw > sheet.width) sw = sheet.width - sx;
+        rawFrames.push({ sx, sw });
+      }
+
+      const targetH = 118;
+      const targetW = Math.max(1, Math.round(crop.w * targetH / crop.h));
+      return rawFrames.map((frame) => ({
+        sheet,
+        sx: frame.sx + crop.x,
+        sy: crop.y,
+        sw: Math.min(crop.w, sheet.width - frame.sx - crop.x),
+          sh: Math.min(crop.h, rawFrameH - crop.y),
+          dw: targetW,
+          dh: targetH
+      }));
+    }
+
+    function inferQuestionModule(topic, text) {
+      const value = `${topic} ${text}`.toLowerCase();
+      if (["rto", "rpo", "bia", "continuidad", "recuperación", "desastre", "interrupción"].some((word) => value.includes(word))) return "continuidad";
+      if (["evitar", "reducir", "transferir", "aceptar", "control", "tratamiento", "mitigar"].some((word) => value.includes(word))) return "tratamiento";
+      if (["probabilidad", "impacto", "matriz", "evaluación", "evaluar", "apetito", "residual"].some((word) => value.includes(word))) return "evaluacion";
+      if (["simulación", "escenario", "cae", "caída del sistema", "notifica", "prioriza", "canal alterno"].some((word) => value.includes(word))) return "simulacion";
+      return "que_es_riesgo";
+    }
+
+    function inferQuestionDifficulty(module, text) {
+      const value = text.toLowerCase();
+      if (module === "continuidad" || module === "simulacion") return "alto";
+      if (module === "evaluacion" || module === "tratamiento") return "medio";
+      if (["crítico", "nacional", "fraude", "contingencia", "crisis"].some((word) => value.includes(word))) return "alto";
+      return "basico";
+    }
+
+    function inferRiskLevel(module, text) {
+      const value = text.toLowerCase();
+      if (["crítico", "caída", "ciber", "datos sensibles", "nacional", "fraude", "desastre"].some((word) => value.includes(word))) return "alto";
+      if (module === "evaluacion" || module === "tratamiento" || ["control", "seguimiento", "proveedor", "aprobación"].some((word) => value.includes(word))) return "medio";
+      return "bajo";
+    }
+
+    function inferTreatment(text) {
+      const value = text.toLowerCase();
+      if (value.includes("evitar") || value.includes("detener")) return "evitar";
+      if (value.includes("transfer") || value.includes("seguro") || value.includes("tercer")) return "transferir";
+      if (value.includes("acept") || value.includes("apetito")) return "aceptar";
+      return "reducir";
+    }
+
+    function normalizeQuestion(row, index = 0) {
+      if (!row || typeof row !== "object") return null;
+      const rawOptions = row.options || row.opciones || row.answers || row.respuestas || row.alternativas || [];
+      if (!Array.isArray(rawOptions) || rawOptions.length < 2) return null;
+      const options = rawOptions
+        .map((option) => typeof option === "object" ? option.text || option.texto || option.label || option.opcion : String(option))
+        .map((value) => String(value || "").trim())
+        .filter(Boolean)
+        .slice(0, 3);
+      if (options.length < 2) return null;
+
+      let correctIndex = row.correctIndex ?? row.correct_index ?? row.respuestaCorrectaIndex ?? row.indice_correcto;
+      if (correctIndex === undefined || correctIndex === null) {
+        const answer = row.correctAnswer || row.respuestaCorrecta || row.correct || row.answer;
+        if (answer !== undefined && answer !== null) {
+          const wanted = String(answer).trim().toLowerCase();
+          correctIndex = options.findIndex((option) => option.trim().toLowerCase() === wanted);
+        }
+      }
+      correctIndex = Number.isFinite(Number(correctIndex)) ? Number(correctIndex) : 0;
+      correctIndex = clamp(Math.trunc(correctIndex), 0, options.length - 1);
+
+      const question = row.question || row.pregunta || row.title || row.titulo || "Pregunta";
+      const context = row.context || row.contexto || row.case || row.caso || "Responde correctamente para abrir la puerta.";
+      const topic = row.topic || row.tema || "ADN Riesgos";
+      const joined = `${question} ${context} ${topic}`;
+      const module = row.module || row.modulo || inferQuestionModule(topic, joined);
+      const difficulty = row.difficulty || row.dificultad || inferQuestionDifficulty(module, joined);
+      const riskLevel = row.riskLevel || row.risk_level || row.riesgo || inferRiskLevel(module, joined);
+      const treatment = row.treatment || row.tratamiento || inferTreatment(joined);
+
+      return {
+        id: String(row.id || `q${index + 1}`),
+        topic: String(topic),
+        module: String(module),
+        difficulty: String(difficulty),
+        riskLevel: String(riskLevel),
+        treatment: String(treatment),
+        context: String(context),
+        question: String(question),
+        options,
+        correctIndex: Math.min(correctIndex, 2),
+        feedbackCorrect: String(row.feedbackCorrect || row.feedback_correct || row.retroalimentacion_correcta || "Correcto. Puedes continuar."),
+        feedbackIncorrect: String(row.feedbackIncorrect || row.feedback_incorrect || row.retroalimentacion_incorrecta || `La respuesta correcta es: ${options[correctIndex]}`)
+      };
+    }
+
+    function baseLevelGeometry() {
+      return {
+        grounds: [
+          [0, 760], [840, 520], [1450, 460], [2010, 530], [2630, 720],
+          [3450, 450], [4040, 520], [4670, 340], [5170, 1430]
+        ],
+        platforms: [
+          [520, 558, 170, 26], [710, 520, 160, 26],
+          [1130, 520, 160, 26], [1560, 520, 160, 26],
+          [2130, 552, 220, 26], [2380, 516, 170, 26],
+          [2740, 558, 170, 26], [2940, 520, 170, 26],
+          [3150, 482, 170, 26], [3520, 552, 180, 26],
+          [3740, 512, 170, 26], [4100, 552, 170, 26],
+          [4300, 514, 170, 26], [4500, 476, 170, 26],
+          [5220, 558, 170, 26], [5420, 520, 170, 26],
+          [5620, 482, 170, 26]
+        ],
+        pipes: [
+          [1815, 580, 90, 110], [3260, 556, 90, 134], [4890, 528, 110, 162]
+        ],
+        enemy_routes: [
+          [560, FLOOR_Y - 44, 520, 650], [910, FLOOR_Y - 44, 880, 1020], [1610, FLOOR_Y - 44, 1570, 1710],
+          [2330, FLOOR_Y - 44, 2180, 2480], [3100, FLOOR_Y - 44, 2880, 3280],
+          [3730, FLOOR_Y - 44, 3520, 3850], [4540, FLOOR_Y - 44, 4380, 4630],
+          [5350, FLOOR_Y - 44, 5200, 5600]
+        ],
+        coins: [
+          [570, 452], [745, 404], [1080, 448], [1290, 396], [1565, 446], [1720, 396],
+          [2190, 452], [2290, 452], [2825, 444], [2985, 398], [3140, 350], [3590, 442],
+          [4175, 412], [4335, 362], [4505, 314], [5278, 446], [5440, 398], [5940, 420]
+        ],
+        clouds: [[120, 170, 0.9], [760, 120, 1], [1410, 170, 1.2], [2220, 118, 1.4], [3300, 150, 1], [4210, 110, 1.1], [5150, 170, 1.3]],
+        hills: [[170, 190, 0.6], [960, 240, 0.82], [1930, 210, 0.72], [2890, 270, 0.9], [3810, 200, 0.68], [4700, 286, 1], [5600, 160, 0.58]],
+        shrubs: [250, 680, 1200, 1760, 2480, 3260, 3980, 4620, 5480]
+      };
+    }
+
+    function buildLevelDefinition(levelId, questions) {
+      const meta = LEVEL_META[levelId];
+      const geo = baseLevelGeometry();
+      let platforms = geo.platforms.map((item) => item.slice());
+      const enemyRoutes = geo.enemy_routes.map((item) => item.slice());
+      const levelSigns = {
+        que_es_riesgo: [
+          { x: 320, title: "Riesgo", text: "Evento que puede afectar objetivos, clientes, operación, finanzas o cumplimiento." },
+          { x: 2250, title: "Riesgo = P x I", text: "Probabilidad e impacto se combinan para definir la exposición." },
+          { x: 4380, title: "Matriz 4x4", text: "Evaluar permite priorizar según nivel, apetito y riesgo residual." }
+        ],
+        tratamiento: [
+          { x: 320, title: "Tratamiento", text: "Después de evaluar, se decide cómo actuar sobre el riesgo." },
+          { x: 2250, title: "Reducir y transferir", text: "Controles, contratos, seguros o terceros pueden bajar o compartir el impacto." },
+          { x: 4380, title: "Aceptar o evitar", text: "Se acepta si está dentro del apetito; se evita si la exposición no conviene." }
+        ],
+        continuidad: [
+          { x: 320, title: "Continuidad", text: "Busca sostener el negocio cuando ocurre una interrupción seria." },
+          { x: 2250, title: "BIA, RTO y RPO", text: "Define procesos críticos, tiempos de recuperación y pérdida tolerable de datos." },
+          { x: 4380, title: "Simulación", text: "Ante una caída del sistema: prioriza, activa canales alternos y comunica temprano." }
+        ]
+      };
+      let signs = (levelSigns[levelId] || [
+        { x: 320, title: meta.title, text: meta.subtitle },
+        { x: 2250, title: "Riesgo = P x I", text: meta.banner },
+        { x: 4380, title: "Zona alta", text: "Más presión, más enemigos y más criterio." }
+      ]).map((item) => ({ ...item }));
+
+      const levelTools = {
+        que_es_riesgo: [{ pickup_id: `${levelId}-reduce`, kind: "reduce", x: 2310, y: 468 }],
+        tratamiento: [{ pickup_id: `${levelId}-transfer`, kind: "transfer", x: 4325, y: 428 }],
+        continuidad: [
+          { pickup_id: `${levelId}-avoid`, kind: "avoid", x: 1280, y: 488 },
+          { pickup_id: `${levelId}-accept`, kind: "accept", x: 6050, y: 360 }
+        ]
+      };
+      const tools = (levelTools[levelId] || []).map((item) => ({ ...item }));
+      const zones = [
+        { start: 0, end: 1800, risk: "bajo", label: "Riesgo bajo" },
+        { start: 1800, end: 3900, risk: "medio", label: "Riesgo medio" },
+        { start: 3900, end: WORLD_WIDTH, risk: "alto", label: "Riesgo alto" }
+      ];
+
+      if (levelId === "evaluacion") {
+        platforms = platforms.map((p, i) => [p[0] + (i % 4 === 0 ? 12 : 0), p[1] - ([2, 5, 11, 16, 20].includes(i) ? 20 : 0), p[2], p[3]]);
+      } else if (levelId === "tratamiento") {
+        platforms = platforms.map((p, i) => [p[0], p[1] - ([7, 8, 14, 15].includes(i) ? 16 : 0), p[2], p[3]]);
+        enemyRoutes.push([2670, FLOOR_Y - 44, 2635, 2840], [5030, FLOOR_Y - 44, 4940, 5160]);
+      } else if (levelId === "continuidad") {
+        platforms = platforms.map((p, i) => [p[0] + ([8, 14, 17].includes(i) ? 16 : 0), p[1] - (i % 5 === 0 ? 24 : 0), p[2], p[3]]);
+        enemyRoutes.push([1180, FLOOR_Y - 44, 1020, 1320], [4140, FLOOR_Y - 44, 4070, 4340], [5710, FLOOR_Y - 44, 5600, 5900]);
+      } else if (levelId === "simulacion") {
+        platforms = platforms.map((p, i) => [p[0] + ([3, 9, 18].includes(i) ? 18 : 0), p[1] - (i % 3 === 0 ? 28 : 0), p[2], p[3]]);
+        enemyRoutes.push([870, FLOOR_Y - 44, 840, 1030], [2860, FLOOR_Y - 44, 2740, 3080], [6010, FLOOR_Y - 44, 5870, 6200]);
+        signs = [
+          { x: 320, title: "Evento crítico", text: "El sistema principal cae en plena jornada." },
+          { x: 2250, title: "Prioriza", text: "Protege servicio, flujo y reputación." },
+          { x: 4380, title: "Comunica", text: "Escala temprano con mensaje validado." }
+        ];
+      }
+
+      const gateLayout = {
+        0: [1130, 520],
+        1: [1815, 580],
+        2: [2380, 518],
+        3: [2940, 520],
+        4: [3800, 520],
+        5: [4560, 460],
+        6: [5420, 520]
+      };
+      const gates = questions.map((question, index) => {
+        const layout = gateLayout[index] || [760 + index * 760, FLOOR_Y];
+        const x = layout[0];
+        const platformY = layout[1];
+        return {
+          gate_id: `${levelId}-gate-${index + 1}`,
+          x,
+          y: platformY - 108,
+          w: 76,
+          h: 108,
+          question,
+          checkpoint_x: Math.max(140, x - 80),
+          checkpoint_y: platformY - PLAYER_H
+        };
+      });
+
+      const enemyKinds = ["error_humano", "falla_tecnologica", "exposicion_info", "ciberataque"];
+      const enemies = enemyRoutes.map((route, index) => {
+        const kind = enemyKinds[index % enemyKinds.length];
+        const theme = ENEMY_THEMES[kind];
+        const risk = index >= Math.max(4, enemyRoutes.length - 3) ? "alto" : (index >= 2 ? "medio" : "bajo");
+        return {
+          enemy_id: `${levelId}-enemy-${index + 1}`,
+          x: route[0],
+          y: route[1],
+          w: 44,
+          h: 44,
+          left: route[2],
+          right: route[3],
+          vx: index % 2 === 0 ? -1.1 : 1.1,
+          phase: index * 0.6,
+          kind,
+          label: theme.label,
+          risk_level: risk
+        };
+      });
+
+      return {
+        meta,
+        grounds: geo.grounds,
+        platforms,
+        pipes: geo.pipes,
+        stairs_origin: 5830,
+        stairs_count: 7,
+        clouds: geo.clouds,
+        hills: geo.hills,
+        shrubs: geo.shrubs,
+        coins: geo.coins,
+        signs,
+        gates,
+        enemies,
+        tools,
+        zones,
+        sim_event_x: levelId === "simulacion" ? 4720 : null
+      };
+    }
+
+    function loadBestRun() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return { history: [], ranking: [] };
+        const data = JSON.parse(raw);
+        if (Array.isArray(data)) return { history: data, ranking: data.slice(0, 10) };
+        return {
+          history: Array.isArray(data.history) ? data.history : [],
+          ranking: Array.isArray(data.ranking) ? data.ranking : []
+        };
+      } catch {
+        return { history: [], ranking: [] };
+      }
+    }
+
+    function saveBestRun(data) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    }
+
+    class Button {
+      constructor(rect, text, kind = "primary") {
+        this.rect = { x: rect[0], y: rect[1], w: rect[2], h: rect[3] };
+        this.text = text;
+        this.kind = kind;
+      }
+
+      hit(pos) {
+        return pos.x >= this.rect.x && pos.x <= this.rect.x + this.rect.w && pos.y >= this.rect.y && pos.y <= this.rect.y + this.rect.h;
+      }
+
+      draw(game) {
+        const { ctx, mousePos } = game;
+        const hovered = this.hit(mousePos);
+        let color = [18, 34, 80];
+        let textColor = PALETTE.white;
+        if (this.kind === "primary") {
+          color = hovered ? [75, 221, 93] : [55, 210, 70];
+          textColor = PALETTE.ink;
+        } else if (this.kind === "ghost") {
+          color = [20, 33, 75];
+        } else if (hovered) {
+          color = [28, 46, 100];
+        }
+        roundRect(ctx, this.rect.x, this.rect.y, this.rect.w, this.rect.h, 26, rgb(color), "rgba(255,255,255,0.30)", 2);
+        game.drawCenteredText(this.text, this.rect.x + this.rect.w / 2, this.rect.y + this.rect.h / 2 + 1, "bodyBold", textColor);
+      }
+    }
+
+    class Game {
+      constructor(canvas, assets, questions) {
+        this.canvas = canvas;
+        this.ctx = canvas.getContext("2d");
+        this.assets = assets;
+        this.spriteFrames = prepareSpriteFrames(assets.sprite);
+        this.allQuestions = questions.map(normalizeQuestion).filter(Boolean);
+        this.bestRun = loadBestRun();
+        this.mousePos = { x: 0, y: 0 };
+        this.keys = { left: false, right: false, jump: false };
+        this.grounds = [];
+        this.solids = [];
+        this.coins = [];
+        this.clouds = [];
+        this.hills = [];
+        this.shrubs = [];
+        this.signs = [];
+        this.gates = [];
+        this.enemies = [];
+        this.tools = [];
+        this.riskZones = [];
+        this.cameraX = 0;
+        this.elapsed = 0;
+        this.ambientTick = 0;
+        this.toastTimer = 0;
+        this.toastText = "";
+        this.currentScene = "menu";
+        this.modal = null;
+        this.inputUser = "";
+        this.inputActive = true;
+        this.inputError = "";
+        this.cursorTimer = 0;
+        this.cursorVisible = true;
+        this.downloadMessage = "";
+        this.downloadTimer = 0;
+        this.currentGate = null;
+        this.treatmentKind = null;
+        this.instructionsSeen = false;
+        this.questionFeedback = "";
+        this.questionFeedbackKind = "neutral";
+        this.questionContinueEnabled = false;
+        this.selectedOption = null;
+        this.questionAttempts = 0;
+        this.particles = [];
+        this.floatingTexts = [];
+        this.rings = [];
+        this.screenFlash = { alpha: 0, color: [255, 255, 255] };
+        this.shakeTimer = 0;
+        this.shakeMagnitude = 0;
+        this.lastResult = null;
+        this.levelOrder = LEVEL_ORDER.slice();
+        this.currentLevelIndex = 0;
+        this.currentLevelId = this.levelOrder[this.currentLevelIndex];
+        this.levelData = {};
+        this.campaignResults = {};
+        this.furthestX = 130;
+        this.currentZone = "bajo";
+        this.simulationPromptSeen = false;
+        this.optionRects = [];
+        this.downloadBtn = null;
+        this.rateBtn = null;
+        this.buildUI();
+        this.loadLevel();
+        this.resetRun(true);
+        this.bindEvents();
+      }
+
+      buildUI() {
+        this.menuButtons = [
+          new Button([120, 710, 180, 54], "JUGAR", "primary"),
+          new Button([320, 710, 180, 54], "TOP", "secondary"),
+          new Button([520, 710, 180, 54], "SALIR", "ghost")
+        ];
+        this.topButtons = [
+          new Button([120, 720, 180, 54], "JUGAR", "primary"),
+          new Button([320, 720, 180, 54], "VOLVER", "secondary")
+        ];
+        this.finishButtons = [
+          new Button([120, 760, 240, 54], "SIGUIENTE NIVEL", "primary"),
+          new Button([380, 760, 230, 54], "REINICIAR NIVEL", "secondary"),
+          new Button([630, 760, 220, 54], "MENÚ PRINCIPAL", "ghost")
+        ];
+        this.gameoverButtons = [
+          new Button([120, 760, 240, 54], "REINTENTAR", "primary"),
+          new Button([380, 760, 220, 54], "MENÚ PRINCIPAL", "secondary")
+        ];
+        this.questionContinueButton = new Button([1020, 730, 220, 54], "CONTINUAR", "primary");
+        this.courseContinueButton = new Button([1040, 732, 220, 54], "CONTINUAR", "primary");
+      }
+
+      bindEvents() {
+        this.canvas.addEventListener("mousemove", (event) => {
+          this.mousePos = this.windowToVirtual(event);
+        });
+        this.canvas.addEventListener("mousedown", (event) => {
+          this.canvas.focus();
+          if (event.button === 0) this.handleMouse(this.windowToVirtual(event));
+        });
+        window.addEventListener("keydown", (event) => this.handleKeyDown(event));
+        window.addEventListener("keyup", (event) => this.handleKeyUp(event));
+        this.canvas.focus();
+      }
+
+      windowToVirtual(event) {
+        const rect = this.canvas.getBoundingClientRect();
+        return {
+          x: clamp((event.clientX - rect.left) * WIDTH / Math.max(1, rect.width), 0, WIDTH),
+          y: clamp((event.clientY - rect.top) * HEIGHT / Math.max(1, rect.height), 0, HEIGHT)
+        };
+      }
+
+      selectLevelQuestions(module, difficulty, riskMix) {
+        const pool = this.allQuestions.length ? this.allQuestions.slice() : [];
+        let filtered = [];
+        for (const question of pool) {
+          if (module && question.module !== module) continue;
+          if (difficulty && question.difficulty !== difficulty) continue;
+          if (riskMix && !riskMix.includes(question.riskLevel)) continue;
+          filtered.push(question);
+        }
+        if (filtered.length < QUESTIONS_PER_LEVEL && module) {
+          filtered = filtered.concat(pool.filter((q) => q.module === module && !filtered.includes(q)));
+        }
+        if (filtered.length < QUESTIONS_PER_LEVEL && riskMix) {
+          filtered = filtered.concat(pool.filter((q) => riskMix.includes(q.riskLevel) && !filtered.includes(q)));
+        }
+        if (filtered.length < QUESTIONS_PER_LEVEL) {
+          filtered = filtered.concat(pool.filter((q) => !filtered.includes(q)));
+        }
+        const chosen = shuffle(filtered).slice(0, QUESTIONS_PER_LEVEL);
+        while (chosen.length < QUESTIONS_PER_LEVEL && pool.length) {
+          chosen.push(pool[Math.floor(Math.random() * pool.length)]);
+        }
+        return chosen;
+      }
+
+      loadLevel(levelId = null) {
+        if (levelId) this.currentLevelId = levelId;
+        this.solids = [];
+        this.coins = [];
+        this.clouds = [];
+        this.hills = [];
+        this.shrubs = [];
+        this.signs = [];
+        this.gates = [];
+        this.enemies = [];
+        this.tools = [];
+        const meta = LEVEL_META[this.currentLevelId];
+        this.levelQuestions = this.selectLevelQuestions(meta.question_module, meta.difficulty, meta.risk_mix);
+        this.levelData = buildLevelDefinition(this.currentLevelId, this.levelQuestions);
+        this.riskZones = this.levelData.zones.slice();
+        for (const [x, w] of this.levelData.grounds) this.solids.push({ x, y: FLOOR_Y, w, h: HEIGHT - FLOOR_Y, kind: "ground" });
+        for (const [x, y, w, h] of this.levelData.platforms) this.solids.push({ x, y, w, h, kind: "block" });
+        for (const [x, y, w, h] of this.levelData.pipes) this.solids.push({ x, y, w, h, kind: "pipe" });
+        for (let i = 0; i < this.levelData.stairs_count; i += 1) {
+          this.solids.push({
+            x: this.levelData.stairs_origin + i * 44,
+            y: FLOOR_Y - (i + 1) * 44,
+            w: 44,
+            h: (i + 1) * 44,
+            kind: "stair"
+          });
+        }
+        this.shrubs = this.levelData.shrubs.map((x) => ({ x }));
+        this.clouds = this.levelData.clouds.map((item) => item.slice());
+        this.hills = this.levelData.hills.map((item) => item.slice());
+        this.signs = this.levelData.signs.map((item) => ({ ...item }));
+        this.gates = this.levelData.gates.map((gate) => ({ ...gate, answered: false, asked: false }));
+        this.enemies = this.levelData.enemies.map((enemy) => ({ ...enemy, alive: true }));
+        this.tools = this.levelData.tools.map((tool) => ({ ...tool, w: 42, h: 42, collected: false }));
+        this.coins = this.levelData.coins.map(([x, y], index) => ({ x, y, phase: index * 0.4, collected: false }));
+      }
+
+      resetRun(full = true) {
+        if (full) this.loadLevel();
+        this.particles = [];
+        this.floatingTexts = [];
+        this.rings = [];
+        this.screenFlash = { alpha: 0, color: [255, 255, 255] };
+        this.shakeTimer = 0;
+        this.shakeMagnitude = 0;
+        this.lastResult = null;
+        this.player = {
+          x: 130,
+          y: FLOOR_Y - PLAYER_H,
+          vx: 0,
+          vy: 0,
+          w: PLAYER_W,
+          h: PLAYER_H,
+          lives: 5,
+          score: 0,
+          face: 1,
+          grounded: false,
+          coyote: 0,
+          jumpBuffer: 0,
+          jumpCut: false,
+          animTime: 0,
+          checkpointX: 130,
+          checkpointY: FLOOR_Y - PLAYER_H,
+          invuln: 0,
+          star: 0,
+          assist: 0,
+          acceptBonus: 0,
+          airFrames: 0,
+          finished: false
+        };
+        this.cameraX = 0;
+        this.elapsed = 0;
+        this.toastTimer = 0;
+        this.toastText = "";
+        this.ambientTick = 0;
+        this.modal = null;
+        this.currentGate = null;
+        this.currentZone = "bajo";
+        this.simulationPromptSeen = false;
+        this.questionFeedback = "";
+        this.questionFeedbackKind = "neutral";
+        this.questionContinueEnabled = false;
+        this.selectedOption = null;
+        this.questionAttempts = 0;
+        this.currentScene = full ? "menu" : "game";
+        this.furthestX = 130;
+        if (full) {
+          this.coins.forEach((coin) => { coin.collected = false; });
+          this.gates.forEach((gate) => { gate.answered = false; gate.asked = false; });
+          this.enemies.forEach((enemy, index) => {
+            enemy.alive = true;
+            enemy.vx = index % 2 === 0 ? -1.1 : 1.1;
+          });
+          this.tools.forEach((tool) => { tool.collected = false; });
+        }
+      }
+
+      answeredCount() {
+        return this.gates.filter((gate) => gate.answered).length;
+      }
+
+      pendingGates() {
+        return this.gates.filter((gate) => !gate.answered);
+      }
+
+      showToast(text) {
+        this.toastText = text;
+        this.toastTimer = 2.2;
+      }
+
+      currentLevelMeta() {
+        return LEVEL_META[this.currentLevelId];
+      }
+
+      recordLevelResult() {
+        this.campaignResults[this.currentLevelId] = {
+          score: this.player.score,
+          lives: this.player.lives,
+          time: Math.floor(this.elapsed),
+          questions: this.answeredCount(),
+          questions_total: this.gates.length,
+          level: this.currentLevelMeta().label
+        };
+      }
+
+      campaignTotals() {
+        let results = Object.values(this.campaignResults);
+        let current = this.campaignResults[this.currentLevelId];
+        if (!current) {
+          current = {
+            score: this.player.score,
+            lives: this.player.lives,
+            time: Math.floor(this.elapsed),
+            questions: this.answeredCount(),
+            questions_total: this.gates.length,
+            level: this.currentLevelMeta().label
+          };
+          results = results.concat([current]);
+        }
+        return {
+          score: results.reduce((sum, item) => sum + (item.score || 0), 0),
+          time: results.reduce((sum, item) => sum + (item.time || 0), 0),
+          questions: results.reduce((sum, item) => sum + (item.questions || 0), 0),
+          questions_total: results.reduce((sum, item) => sum + (item.questions_total || 0), 0),
+          lives: current.lives ?? this.player.lives
+        };
+      }
+
+      startNewCampaign() {
+        this.campaignResults = {};
+        this.instructionsSeen = false;
+        this.currentLevelIndex = 0;
+        this.currentLevelId = this.levelOrder[this.currentLevelIndex];
+        this.resetRun(true);
+      }
+
+      nextLevel() {
+        if (this.currentLevelIndex < this.levelOrder.length - 1) {
+          if (!this.campaignResults[this.currentLevelId]) this.recordLevelResult();
+          this.currentLevelIndex += 1;
+          this.currentLevelId = this.levelOrder[this.currentLevelIndex];
+          this.loadLevel(this.currentLevelId);
+          this.resetRun(false);
+          this.startGame();
+        } else {
+          this.startNewCampaign();
+          this.startGame();
+        }
+      }
+
+      startGame() {
+        this.currentScene = "game";
+        if (!this.instructionsSeen) {
+          this.modal = "instructions";
+          this.instructionsSeen = true;
+        } else {
+          this.modal = null;
+        }
+      }
+
+      openTop() {
+        this.bestRun = loadBestRun();
+        this.currentScene = "top";
+      }
+
+      finishLevel() {
+        this.currentScene = "finish";
+        this.player.finished = true;
+        this.recordLevelResult();
+        this.saveBest();
+      }
+
+      saveBest() {
+        const totals = this.campaignTotals();
+        const current = {
+          user: this.inputUser,
+          score: totals.score,
+          lives: totals.lives,
+          time: totals.time,
+          questions: totals.questions,
+          progress: clamp(Math.floor(this.player.x / Math.max(1, FLAG_X) * 100), 0, 100),
+          level: this.currentLevelMeta().label
+        };
+        const data = loadBestRun();
+        const history = data.history.concat([current]);
+        const ranking = history.slice().sort((a, b) => (b.score - a.score) || (a.time - b.time) || (b.lives - a.lives)).slice(0, 10);
+        this.bestRun = { history, ranking };
+        saveBestRun(this.bestRun);
+      }
+
+      gameOver() {
+        this.saveBest();
+        this.currentScene = "gameover";
+        this.modal = null;
+        this.currentGate = null;
+        this.lastResult = {
+          score: this.player.score,
+          lives: this.player.lives,
+          time: Math.floor(this.elapsed),
+          questions: this.answeredCount()
+        };
+        this.triggerFlash([255, 76, 76], 120);
+        this.addShake(0.55, 22);
+        this.spawnParticles(this.player.x + PLAYER_W / 2, this.player.y + PLAYER_H / 2, [255, 95, 95], 54, 8);
+        this.spawnRing(this.player.x + PLAYER_W / 2, this.player.y + PLAYER_H / 2, [255, 220, 120], 10, 120);
+        this.spawnFloatingText("GAME OVER", this.player.x - 34, this.player.y - 54, [255, 240, 210], "big");
+      }
+
+      addShake(duration = 0.25, magnitude = 10) {
+        this.shakeTimer = Math.max(this.shakeTimer, duration);
+        this.shakeMagnitude = Math.max(this.shakeMagnitude, magnitude);
+      }
+
+      triggerFlash(color = [255, 255, 255], alpha = 90) {
+        this.screenFlash = { alpha: Math.max(this.screenFlash.alpha || 0, alpha), color };
+      }
+
+      spawnParticles(x, y, color, count = 18, power = 5, gravity = 0.25) {
+        for (let i = 0; i < count; i += 1) {
+          const angle = Math.random() * Math.PI * 2;
+          const speed = 0.8 + Math.random() * (power - 0.8);
+          const maxLife = 0.35 + Math.random() * 0.6;
+          this.particles.push({
+            x,
+            y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed - (0.5 + Math.random() * 1.9),
+            life: maxLife,
+            maxLife,
+            size: 3 + Math.floor(Math.random() * 6),
+            color,
+            gravity
+          });
+        }
+      }
+
+      spawnRing(x, y, color, radius = 8, maxRadius = 96) {
+        this.rings.push({ x, y, radius, max: maxRadius, life: 0.5, color });
+      }
+
+      spawnFloatingText(text, x, y, color, size = "normal") {
+        this.floatingTexts.push({ text, x, y, vy: -52, life: 1.05, color, size });
+      }
+
+      effectEnemyKo(enemy) {
+        const cx = enemy.x + enemy.w / 2;
+        const cy = enemy.y + enemy.h / 2;
+        this.spawnParticles(cx, cy, PALETTE.gold, 46, 8);
+        this.spawnParticles(cx, cy, PALETTE.green, 30, 6);
+        this.spawnRing(cx, cy, PALETTE.gold, 10, 120);
+        this.spawnRing(cx, cy, PALETTE.cyan, 18, 150);
+        this.spawnFloatingText("¡K.O.! +180", cx - 46, cy - 52, PALETTE.gold, "big");
+        this.triggerFlash([255, 230, 120], 80);
+        this.addShake(0.25, 13);
+      }
+
+      effectPlayerHit(label = "¡IMPACTO!") {
+        const cx = this.player.x + PLAYER_W / 2;
+        const cy = this.player.y + PLAYER_H / 2;
+        this.spawnParticles(cx, cy, [255, 96, 80], 46, 7);
+        this.spawnRing(cx, cy, [255, 96, 80], 8, 105);
+        this.spawnFloatingText(label, cx - 54, cy - 58, [255, 220, 210], "big");
+        this.triggerFlash([255, 76, 76], 105);
+        this.addShake(0.32, 18);
+      }
+
+      effectCorrectQuestion() {
+        const cx = this.currentGate ? this.currentGate.x + this.currentGate.w / 2 : this.player.x + PLAYER_W / 2;
+        const cy = this.currentGate ? this.currentGate.y + this.currentGate.h / 2 : this.player.y + PLAYER_H / 2;
+        this.spawnParticles(cx, cy, PALETTE.correct, 70, 8);
+        this.spawnParticles(cx, cy, PALETTE.cyan, 38, 6);
+        this.spawnRing(cx, cy, PALETTE.correct, 12, 150);
+        this.spawnRing(cx, cy, PALETTE.gold, 26, 190);
+        this.spawnFloatingText("¡CORRECTO! +550", cx - 78, cy - 72, PALETTE.correct, "big");
+        this.triggerFlash([160, 255, 190], 90);
+        this.addShake(0.22, 9);
+      }
+
+      effectWrongQuestion() {
+        const cx = this.currentGate ? this.currentGate.x + this.currentGate.w / 2 : this.player.x + PLAYER_W / 2;
+        const cy = this.currentGate ? this.currentGate.y + this.currentGate.h / 2 : this.player.y + PLAYER_H / 2;
+        this.spawnParticles(cx, cy, PALETTE.wrong, 44, 6);
+        this.spawnRing(cx, cy, PALETTE.wrong, 10, 120);
+        this.spawnFloatingText("RESPUESTA INCORRECTA", cx - 100, cy - 62, PALETTE.wrong, "big");
+        this.triggerFlash([255, 140, 110], 80);
+        this.addShake(0.26, 12);
+      }
+
+      playerRect() {
+        return { x: this.player.x, y: this.player.y, w: this.player.w, h: this.player.h };
+      }
+
+      resolveSolids(axis) {
+        let rect = this.playerRect();
+        for (const solid of this.solids) {
+          const srect = { x: solid.x, y: solid.y, w: solid.w, h: solid.h };
+          if (!rectsIntersect(rect, srect)) continue;
+          if (axis === "x") {
+            if (this.player.vx > 0) this.player.x = solid.x - this.player.w;
+            else if (this.player.vx < 0) this.player.x = solid.x + solid.w;
+            this.player.vx = 0;
+            rect = this.playerRect();
+          } else {
+            if (this.player.vy > 0) {
+              this.player.y = solid.y - this.player.h;
+              this.player.vy = 0;
+              this.player.grounded = true;
+              this.player.coyote = 8;
+              if (solid.kind !== "block") {
+                this.player.checkpointX = Math.max(130, solid.x + Math.min(40, solid.w - this.player.w));
+                this.player.checkpointY = solid.y - this.player.h;
+              }
+            } else if (this.player.vy < 0) {
+              this.player.y = solid.y + solid.h;
+              this.player.vy = 0;
+            }
+            rect = this.playerRect();
+          }
+        }
+      }
+
+      collectCoins() {
+        const prect = this.playerRect();
+        for (const coin of this.coins) {
+          if (coin.collected) continue;
+          if (rectsIntersect(prect, { x: coin.x - 16, y: coin.y - 16, w: 32, h: 32 })) {
+            coin.collected = true;
+            this.player.score += 120;
+            this.spawnParticles(coin.x, coin.y, PALETTE.gold, 14, 4);
+            this.spawnFloatingText("+120", coin.x - 14, coin.y - 28, PALETTE.gold);
+          }
+        }
+      }
+
+      collectTools() {
+        const prect = this.playerRect();
+        for (const tool of this.tools) {
+          if (tool.collected) continue;
+          if (!rectsIntersect(prect, tool)) continue;
+          tool.collected = true;
+          const theme = TOOL_THEMES[tool.kind];
+          this.player.score += 180;
+          if (tool.kind === "reduce") this.player.star = Math.max(this.player.star, 5);
+          else if (tool.kind === "transfer") {
+            this.player.assist += 1;
+            this.player.lives = Math.min(10, this.player.lives + 1);
+          } else if (tool.kind === "accept") {
+            this.player.acceptBonus += 1;
+            this.player.score += 240;
+          } else if (tool.kind === "avoid") {
+            this.player.invuln = Math.max(this.player.invuln, 1.2);
+          }
+          this.openTreatmentCourse(tool.kind);
+          this.spawnParticles(tool.x + 16, tool.y + 16, theme.color, 18, 4.5);
+          this.spawnFloatingText(theme.label, tool.x - 12, tool.y - 28, theme.color);
+        }
+      }
+
+      openTreatmentCourse(kind) {
+        this.treatmentKind = kind;
+        this.modal = "treatment";
+      }
+
+      closeCourseModal() {
+        this.modal = null;
+        this.treatmentKind = null;
+      }
+
+      openQuestion(gate) {
+        if (gate.answered || this.modal === "question") return;
+        this.modal = "question";
+        this.currentGate = gate;
+        gate.asked = true;
+        const treatment = (gate.question.treatment || "reducir").replace(/^./, (c) => c.toUpperCase());
+        this.questionFeedback = `Responde para abrir la puerta. Estrategia sugerida: ${treatment}.`;
+        this.questionFeedbackKind = "neutral";
+        this.questionContinueEnabled = false;
+        this.selectedOption = null;
+        this.questionAttempts = 0;
+      }
+
+      answerQuestion(optionIndex) {
+        if (!this.currentGate || this.questionContinueEnabled) return;
+        const question = this.currentGate.question;
+        const correct = optionIndex === question.correctIndex;
+        this.selectedOption = optionIndex;
+        this.questionAttempts += 1;
+        if (correct) {
+          this.currentGate.answered = true;
+          if (this.questionAttempts === 1) this.player.score += 500;
+          else if (this.questionAttempts === 2) this.player.score += 300;
+          else this.player.score += 100;
+
+          const treatment = question.treatment || "reducir";
+          if (treatment === "reducir") this.player.star = Math.max(this.player.star, 4.8);
+          else if (treatment === "transferir") this.player.assist += 1;
+          else if (treatment === "aceptar") {
+            this.player.acceptBonus += 1;
+            this.player.score += 120;
+          }
+          this.questionFeedback = question.feedbackCorrect;
+          this.questionFeedbackKind = "correct";
+          this.questionContinueEnabled = true;
+          if (this.answeredCount() % 3 === 0) {
+            this.player.lives = Math.min(10, this.player.lives + 1);
+            this.questionFeedback += " Recuperaste una vida.";
+          }
+          this.effectCorrectQuestion();
+          const rewardText = {
+            evitar: "Ruta despejada. Saltaste el riesgo a tiempo.",
+            reducir: "Puerta abierta. Tienes protección temporal.",
+            transferir: "Puerta abierta. Ganaste apoyo adicional.",
+            aceptar: "Puerta abierta. Asumiste el riesgo con recompensa."
+          }[treatment] || "Puerta abierta.";
+          this.showToast(rewardText);
+        } else {
+          this.player.lives = Math.max(0, this.player.lives - 1);
+          this.player.star = 0;
+          this.player.x = this.currentGate.checkpoint_x;
+          this.player.y = this.currentGate.checkpoint_y;
+          this.player.vx = 0;
+          this.player.vy = 0;
+          this.questionFeedback = question.feedbackIncorrect;
+          this.questionFeedbackKind = "wrong";
+          this.effectWrongQuestion();
+          this.showToast("Respuesta incorrecta. Vuelves al control anterior.");
+          if (this.player.lives <= 0) this.gameOver();
+        }
+      }
+
+      closeQuestion() {
+        this.modal = null;
+        this.currentGate = null;
+        this.questionContinueEnabled = false;
+        this.selectedOption = null;
+        this.questionAttempts = 0;
+      }
+
+      hurtPlayer(sourceX) {
+        if (this.player.invuln > 0 || this.player.star > 0) return;
+        if (this.player.assist > 0) {
+          this.player.assist -= 1;
+          this.player.invuln = 1.2;
+          this.showToast("Transferir: tu apoyo absorbió el impacto.");
+          this.effectPlayerHit("SOPORTE");
+          return;
+        }
+        this.player.lives = Math.max(0, this.player.lives - 1);
+        this.player.invuln = 1.5;
+        this.player.vx = sourceX < this.player.x ? 4.2 : -4.2;
+        this.player.vy = -7.6;
+        this.player.x = this.player.checkpointX;
+        this.player.y = this.player.checkpointY;
+        this.effectPlayerHit();
+        this.showToast("Impacto enemigo. Perdiste una vida.");
+        if (this.player.lives <= 0) this.gameOver();
+      }
+
+      updateEnemies(dt) {
+        const prect = this.playerRect();
+        for (const enemy of this.enemies) {
+          if (!enemy.alive) continue;
+          enemy.x += enemy.vx * dt * FPS;
+          if (enemy.x < enemy.left || enemy.x + enemy.w > enemy.right) enemy.vx *= -1;
+          if (!rectsIntersect(prect, enemy)) continue;
+          const stomp = this.player.vy > 0 && this.player.y + this.player.h - 12 < enemy.y + enemy.h * 0.55;
+          if (this.player.star > 0) {
+            enemy.alive = false;
+            this.player.score += 220;
+            this.effectEnemyKo(enemy);
+            this.showToast("Protección activa: enemigo despejado.");
+          } else if (stomp) {
+            enemy.alive = false;
+            this.player.vy = -9.8;
+            this.player.score += 180;
+            this.effectEnemyKo(enemy);
+            this.showToast("Enemigo superado.");
+          } else {
+            this.hurtPlayer(enemy.x);
+          }
+        }
+      }
+
+      updateGates() {
+        const prect = this.playerRect();
+        for (const gate of this.gates) {
+          if (!gate.answered && rectsIntersect(prect, gate)) {
+            this.openQuestion(gate);
+            break;
+          }
+        }
+      }
+
+      tryFinish() {
+        if (!(this.player.x + this.player.w > FLAG_X + 20 && this.player.grounded && !this.player.finished)) return;
+        const pending = this.pendingGates();
+        if (pending.length) {
+          const gate = pending[0];
+          this.player.x = gate.checkpoint_x;
+          this.player.y = gate.checkpoint_y;
+          this.player.vx = 0;
+          this.player.vy = 0;
+          this.showToast("Aún faltan preguntas. Regresas al control pendiente más antiguo.");
+        } else {
+          this.finishLevel();
+        }
+      }
+
+      updatePlayer(dt) {
+        const accel = 0.76;
+        const friction = 0.56;
+        const maxSpeed = this.player.star > 0 ? 7.6 : 6.8;
+        const jumpVelocity = 14;
+
+        this.player.animTime += dt * 6 + Math.abs(this.player.vx) * dt * 0.16;
+        this.player.invuln = Math.max(0, this.player.invuln - dt);
+        this.player.star = Math.max(0, this.player.star - dt);
+
+        if (this.keys.left) {
+          this.player.vx -= accel;
+          this.player.face = -1;
+        }
+        if (this.keys.right) {
+          this.player.vx += accel;
+          this.player.face = 1;
+        }
+        if (!this.keys.left && !this.keys.right) {
+          if (this.player.vx > 0) this.player.vx = Math.max(0, this.player.vx - friction);
+          if (this.player.vx < 0) this.player.vx = Math.min(0, this.player.vx + friction);
+        }
+
+        this.player.vx = clamp(this.player.vx, -maxSpeed, maxSpeed);
+        if (this.player.grounded) this.player.coyote = 8;
+        else if (this.player.coyote > 0) this.player.coyote -= 1;
+        if (this.player.jumpBuffer > 0) this.player.jumpBuffer -= 1;
+        if (this.player.jumpBuffer > 0 && this.player.coyote > 0) {
+          this.player.vy = -jumpVelocity;
+          this.player.grounded = false;
+          this.player.coyote = 0;
+          this.player.jumpBuffer = 0;
+          this.player.jumpCut = false;
+        }
+        if (!this.keys.jump && this.player.vy < -3 && !this.player.jumpCut) {
+          this.player.vy *= 0.54;
+          this.player.jumpCut = true;
+        }
+
+        this.player.vy = Math.min(MAX_FALL, this.player.vy + GRAVITY);
+        this.player.x += this.player.vx;
+        this.resolveSolids("x");
+        this.player.grounded = false;
+        this.player.y += this.player.vy;
+        this.resolveSolids("y");
+        if (this.player.grounded) this.player.airFrames = 0;
+        else this.player.airFrames += 1;
+
+        this.collectCoins();
+        this.collectTools();
+        this.updateEnemies(dt);
+        this.updateGates();
+
+        if (this.player.y > HEIGHT + 260) {
+          this.player.lives = Math.max(0, this.player.lives - 1);
+          this.player.x = this.player.checkpointX;
+          this.player.y = this.player.checkpointY;
+          this.player.vx = 0;
+          this.player.vy = 0;
+          this.showToast("Caíste fuera del recorrido. Retomas desde el último punto seguro.");
+          this.effectPlayerHit("¡CAÍDA!");
+          if (this.player.lives <= 0) {
+            this.gameOver();
+            return;
+          }
+        }
+
+        this.player.x = clamp(this.player.x, 30, WORLD_WIDTH - this.player.w - 10);
+        this.furthestX = Math.max(this.furthestX, this.player.x);
+        for (const zone of this.riskZones) {
+          if (zone.start <= this.player.x && this.player.x < zone.end) {
+            this.currentZone = zone.risk;
+            break;
+          }
+        }
+        const simEventX = this.levelData.sim_event_x;
+        if (simEventX && !this.simulationPromptSeen && this.player.x >= simEventX) {
+          this.simulationPromptSeen = true;
+          this.showToast("Simulación: prioriza, comunica y activa el canal alterno.");
+        }
+        this.tryFinish();
+      }
+
+      updateEffects(dt) {
+        for (const p of this.particles) {
+          p.x += p.vx * dt * FPS;
+          p.y += p.vy * dt * FPS;
+          p.vy += (p.gravity ?? 0.25) * dt * FPS;
+          p.life -= dt;
+        }
+        this.particles = this.particles.filter((p) => p.life > 0);
+        for (const t of this.floatingTexts) {
+          t.y += t.vy * dt;
+          t.vy *= 0.98;
+          t.life -= dt;
+        }
+        this.floatingTexts = this.floatingTexts.filter((t) => t.life > 0);
+        for (const r of this.rings) {
+          r.radius += (r.max - r.radius) * Math.min(1, dt * 6);
+          r.life -= dt;
+        }
+        this.rings = this.rings.filter((r) => r.life > 0);
+        if (this.screenFlash.alpha > 0) this.screenFlash.alpha = Math.max(0, this.screenFlash.alpha - dt * 260);
+        if (this.shakeTimer > 0) {
+          this.shakeTimer = Math.max(0, this.shakeTimer - dt);
+          this.shakeMagnitude *= Math.max(0, 1 - dt * 4.5);
+        } else {
+          this.shakeMagnitude = 0;
+        }
+      }
+
+      update(dt) {
+        this.ambientTick += dt;
+        this.updateEffects(dt);
+        if (this.toastTimer > 0) this.toastTimer = Math.max(0, this.toastTimer - dt);
+        if (this.currentScene === "game") {
+          this.elapsed += dt;
+          if (this.modal === null) {
+            this.updatePlayer(dt);
+            const target = clamp(this.player.x - WIDTH * 0.32, 0, WORLD_WIDTH - WIDTH);
+            this.cameraX += (target - this.cameraX) * Math.min(1, dt * 3.4);
+          }
+        }
+        this.cursorTimer += dt;
+        if (this.cursorTimer >= 0.5) {
+          this.cursorVisible = !this.cursorVisible;
+          this.cursorTimer = 0;
+        }
+        if (this.downloadTimer > 0) this.downloadTimer = Math.max(0, this.downloadTimer - dt);
+        if (this.downloadTimer <= 0) this.downloadMessage = "";
+      }
+
+      riskColor(risk) {
+        return {
+          bajo: [77, 204, 110],
+          medio: [255, 198, 79],
+          alto: [255, 112, 112]
+        }[risk] || PALETTE.cyan;
+      }
+
+      setFont(fontKey, color = PALETTE.white, align = "left", baseline = "top") {
+        this.ctx.font = FONTS[fontKey];
+        this.ctx.fillStyle = Array.isArray(color) ? rgb(color) : color;
+        this.ctx.textAlign = align;
+        this.ctx.textBaseline = baseline;
+      }
+
+      wrapText(text, fontKey, maxWidth) {
+        this.ctx.font = FONTS[fontKey];
+        const words = String(text || "").split(/\s+/).filter(Boolean);
+        if (!words.length) return [""];
+        const lines = [];
+        let line = words[0];
+        for (const word of words.slice(1)) {
+          const test = `${line} ${word}`.trim();
+          if (this.ctx.measureText(test).width <= maxWidth) line = test;
+          else {
+            lines.push(line);
+            line = word;
+          }
+        }
+        lines.push(line);
+        return lines;
+      }
+
+      drawText(text, x, y, fontKey, color, maxWidth = null, lineGap = 6) {
+        this.setFont(fontKey, color);
+        if (!maxWidth) {
+          this.ctx.fillText(String(text), x, y);
+          return { x, y, w: this.ctx.measureText(String(text)).width, h: LINE_HEIGHT[fontKey], bottom: y + LINE_HEIGHT[fontKey] };
+        }
+        const lines = this.wrapText(text, fontKey, maxWidth);
+        let cursorY = y;
+        let widest = 0;
+        for (const line of lines) {
+          this.ctx.fillText(line, x, cursorY);
+          widest = Math.max(widest, this.ctx.measureText(line).width);
+          cursorY += LINE_HEIGHT[fontKey] + lineGap;
+        }
+        const height = lines.length * LINE_HEIGHT[fontKey] + Math.max(0, lines.length - 1) * lineGap;
+        return { x, y, w: Math.min(maxWidth, widest), h: height, bottom: y + height };
+      }
+
+      drawCenteredText(text, cx, cy, fontKey, color) {
+        this.setFont(fontKey, color, "center", "middle");
+        this.ctx.fillText(String(text), cx, cy);
+        this.setFont("body", PALETTE.white);
+      }
+
+      drawWrappedCentered(text, cx, y, fontKey, color, maxWidth, lineGap = 6) {
+        const lines = this.wrapText(text, fontKey, maxWidth);
+        this.setFont(fontKey, color, "center", "top");
+        let cursorY = y;
+        for (const line of lines) {
+          this.ctx.fillText(line, cx, cursorY);
+          cursorY += LINE_HEIGHT[fontKey] + lineGap;
+        }
+        return cursorY;
+      }
+
+      drawGradientBg() {
+        const gradient = this.ctx.createLinearGradient(0, 0, 0, HEIGHT);
+        gradient.addColorStop(0, "rgb(132,207,255)");
+        gradient.addColorStop(1, "rgb(247,253,255)");
+        this.ctx.fillStyle = gradient;
+        this.ctx.fillRect(0, 0, WIDTH, HEIGHT);
+      }
+
+      drawRiskZoneBands() {
+        for (const zone of this.riskZones) {
+          const start = zone.start - this.cameraX;
+          const end = zone.end - this.cameraX;
+          const w = end - start;
+          if (start + w < 0 || start > WIDTH) continue;
+          const color = this.riskColor(zone.risk);
+          this.ctx.fillStyle = rgba(color, 0.15);
+          this.ctx.fillRect(start, 86, w, 68);
+          const labelW = Math.min(170, w - 20);
+          if (labelW > 60) {
+            roundRect(this.ctx, start + 10, 98, labelW, 28, 14, null, rgb(color), 2);
+            this.drawText(zone.label, start + 22, 104, "small", PALETTE.ink);
+          }
+        }
+      }
+
+      drawCloud(x, y, scale) {
+        const dx = x - this.cameraX * 0.18 + Math.sin(this.ambientTick * 0.26 + x * 0.004) * 10;
+        this.ctx.fillStyle = "white";
+        this.ctx.beginPath();
+        this.ctx.ellipse(dx + 33 * scale, y + 33 * scale, 33 * scale, 19 * scale, 0, 0, Math.PI * 2);
+        this.ctx.ellipse(dx + 68 * scale, y + 24 * scale, 38 * scale, 24 * scale, 0, 0, Math.PI * 2);
+        this.ctx.ellipse(dx + 124 * scale, y + 34 * scale, 34 * scale, 18 * scale, 0, 0, Math.PI * 2);
+        this.ctx.fill();
+      }
+
+      drawHill(x, height, scale) {
+        const baseX = x - this.cameraX * 0.36;
+        const width = 260 * scale;
+        this.ctx.fillStyle = "rgb(143,208,111)";
+        this.ctx.beginPath();
+        this.ctx.moveTo(baseX, FLOOR_Y + 20);
+        this.ctx.lineTo(baseX + width * 0.52, FLOOR_Y - height);
+        this.ctx.lineTo(baseX + width, FLOOR_Y + 20);
+        this.ctx.closePath();
+        this.ctx.fill();
+        this.ctx.fillStyle = "rgb(118,191,90)";
+        this.ctx.beginPath();
+        this.ctx.moveTo(baseX + width * 0.18, FLOOR_Y + 20);
+        this.ctx.lineTo(baseX + width * 0.5, FLOOR_Y - height * 0.72);
+        this.ctx.lineTo(baseX + width * 0.82, FLOOR_Y + 20);
+        this.ctx.closePath();
+        this.ctx.fill();
+      }
+
+      drawWorld() {
+        const bg = this.currentLevelId === "continuidad" ? this.assets.noche : (this.currentLevelId === "tratamiento" ? this.assets.atardecer : this.assets.amanecer);
+        this.ctx.drawImage(bg, 0, 0, WIDTH, HEIGHT);
+        this.drawRiskZoneBands();
+        for (const cloud of this.clouds) this.drawCloud(...cloud);
+        for (const hill of this.hills) this.drawHill(...hill);
+        for (const solid of this.solids) this.drawSolid(solid);
+        for (const sign of this.signs) this.drawSign(sign);
+        for (const coin of this.coins) this.drawCoin(coin);
+        for (const tool of this.tools) this.drawTool(tool);
+        for (const gate of this.gates) this.drawGate(gate);
+        for (const enemy of this.enemies) this.drawEnemy(enemy);
+        this.drawFlag();
+        this.drawEffects();
+        this.drawPlayer();
+      }
+
+      drawSolid(solid) {
+        const x = solid.x - this.cameraX;
+        if (x + solid.w < -180 || x > WIDTH + 180) return;
+        if (solid.kind === "ground") {
+          this.ctx.fillStyle = "rgb(23,181,74)";
+          this.ctx.fillRect(x, solid.y - 22, solid.w, 22);
+          this.ctx.fillStyle = rgb(PALETTE.soil);
+          this.ctx.fillRect(x, solid.y, solid.w, solid.h);
+          this.ctx.fillStyle = "rgb(138,91,56)";
+          for (let px = x; px < x + solid.w; px += 34) {
+            this.ctx.fillRect(px + 8, solid.y + 20, 18, 12);
+            this.ctx.fillRect(px, solid.y + 50, 24, 12);
+          }
+          this.ctx.fillStyle = rgb(PALETTE.soilDark);
+          this.ctx.fillRect(x, solid.y + solid.h - 8, solid.w, 8);
+          return;
+        }
+        if (solid.kind === "block" || solid.kind === "stair") {
+          this.ctx.fillStyle = "rgb(150,80,200)";
+          this.ctx.fillRect(x, solid.y, solid.w, solid.h);
+          this.ctx.fillStyle = "rgb(200,150,240)";
+          this.ctx.fillRect(x + 4, solid.y + 4, solid.w - 8, 6);
+          this.ctx.fillStyle = "rgb(180,120,220)";
+          this.ctx.fillRect(x + 10, solid.y + 12, 14, 10);
+          this.ctx.fillRect(x + solid.w - 24, solid.y + 12, 14, 10);
+          this.ctx.fillStyle = "rgb(100,50,160)";
+          this.ctx.fillRect(x, solid.y + solid.h - 6, solid.w, 6);
+        } else if (solid.kind === "pipe") {
+          this.ctx.fillStyle = "rgb(20,140,80)";
+          this.ctx.fillRect(x, solid.y + 16, solid.w, solid.h - 16);
+          this.ctx.fillStyle = "rgb(50,150,100)";
+          this.ctx.fillRect(x - 10, solid.y + 2, solid.w + 20, 18);
+          this.ctx.strokeStyle = "rgb(120,220,170)";
+          this.ctx.lineWidth = 2;
+          this.ctx.beginPath();
+          this.ctx.moveTo(x - 10, solid.y + 2);
+          this.ctx.lineTo(x + solid.w + 10, solid.y + 2);
+          this.ctx.stroke();
+          this.ctx.fillStyle = "rgb(10,90,50)";
+          this.ctx.fillRect(x + solid.w - 16, solid.y + 22, 8, solid.h - 22);
+          this.ctx.strokeStyle = "rgb(0,60,30)";
+          this.ctx.lineWidth = 2;
+          this.ctx.strokeRect(x, solid.y, solid.w, solid.h);
+        }
+      }
+
+      drawSign(sign) {
+        const x = sign.x - this.cameraX;
+        if (x < -200 || x > WIDTH + 200) return;
+        const lines = this.wrapText(sign.text, "small", 280);
+        this.ctx.font = FONTS.bodyBold;
+        const titleW = this.ctx.measureText(sign.title).width;
+        this.ctx.font = FONTS.small;
+        const contentW = Math.max(titleW, ...lines.map((line) => this.ctx.measureText(line).width));
+        const boxW = Math.min(330, contentW + 44);
+        const boxH = 46 + lines.length * 22;
+        const rectX = x - boxW / 2;
+        const rectY = FLOOR_Y + 8;
+        roundRect(this.ctx, rectX, rectY, boxW, boxH, 10, "rgb(235,220,170)", rgb(PALETTE.ink), 2);
+        this.ctx.fillStyle = "rgb(70,40,25)";
+        this.ctx.fillRect(rectX, rectY - 4, boxW, 6);
+        this.drawCenteredText(sign.title, rectX + boxW / 2, rectY + 18, "bodyBold", PALETTE.ink);
+        let y = rectY + 36;
+        this.setFont("small", PALETTE.ink, "center", "middle");
+        for (const line of lines) {
+          this.ctx.fillText(line, rectX + boxW / 2, y);
+          y += 20;
+        }
+      }
+
+      drawCoin(coin) {
+        if (coin.collected) return;
+        const x = coin.x - this.cameraX;
+        if (x < -24 || x > WIDTH + 24) return;
+        const bob = Math.sin(this.ambientTick * 4 + coin.phase) * 8;
+        this.ctx.fillStyle = rgb(PALETTE.gold);
+        this.ctx.beginPath();
+        this.ctx.ellipse(x, coin.y + bob, 11, 15, 0, 0, Math.PI * 2);
+        this.ctx.fill();
+        this.ctx.fillStyle = "rgb(244,184,39)";
+        this.ctx.fillRect(x - 2, coin.y + bob - 10, 4, 20);
+      }
+
+      drawTool(tool) {
+        if (tool.collected) return;
+        const x = tool.x - this.cameraX;
+        if (x < -60 || x > WIDTH + 60) return;
+        const bob = Math.sin(this.ambientTick * 3.6 + tool.x * 0.01) * 5;
+        const theme = TOOL_THEMES[tool.kind];
+        roundRect(this.ctx, x, tool.y + bob, tool.w, tool.h, 12, rgb(theme.color));
+        roundRect(this.ctx, x + 8, tool.y + bob + 8, tool.w - 16, tool.h - 16, 10, rgb(PALETTE.white));
+        const label = { reduce: "R", transfer: "T", accept: "A", avoid: "E" }[tool.kind] || "?";
+        this.drawText(label, x + 12, tool.y + bob + 8, "bodyBold", PALETTE.ink);
+      }
+
+      drawGate(gate) {
+        const x = gate.x - this.cameraX;
+        if (x < -120 || x > WIDTH + 120) return;
+        const risk = gate.question.riskLevel || "medio";
+        const module = gate.question.module || "Riesgo";
+        const body = gate.answered ? [27, 191, 97] : this.riskColor(risk);
+        const inner = gate.answered ? [16, 134, 73] : PALETTE.inkSoft;
+        this.ctx.fillStyle = rgb(body);
+        this.ctx.fillRect(x, gate.y, gate.w, gate.h);
+        this.ctx.fillStyle = rgb(inner);
+        this.ctx.fillRect(x + 8, gate.y + 10, gate.w - 16, gate.h - 18);
+        this.ctx.fillStyle = rgb(PALETTE.cream);
+        this.ctx.fillRect(x + 12, gate.y + 18, gate.w - 24, gate.h - 34);
+        const label = gate.answered ? "OK" : (module === "que_es_riesgo" ? "R" : module.slice(0, 1).toUpperCase());
+        this.drawCenteredText(label, x + gate.w / 2, gate.y + 48, "title", PALETTE.ink);
+        roundRect(this.ctx, x + 12, gate.y + 76, gate.w - 24, 12, 6, rgb(PALETTE.ink));
+        roundRect(this.ctx, x + 16, gate.y + 79, gate.w - 32, 6, 4, rgb(body));
+      }
+
+      drawEnemy(enemy) {
+        if (!enemy.alive) return;
+        const x = enemy.x - this.cameraX;
+        if (x < -80 || x > WIDTH + 80) return;
+        const bob = Math.sin(this.ambientTick * 5 + enemy.phase) * 1.5;
+        const theme = ENEMY_THEMES[enemy.kind] || ENEMY_THEMES.error_humano;
+        roundRect(this.ctx, x + 4, enemy.y + 16 + bob, 36, 18, 8, rgb(theme.body));
+        roundRect(this.ctx, x + 8, enemy.y + 10 + bob, 28, 22, 6, rgb(theme.accent));
+        roundRect(this.ctx, x + 8, enemy.y + 2 + bob, 28, 18, 4, "rgb(245,215,152)");
+        this.ctx.fillStyle = rgb(PALETTE.outline);
+        this.ctx.fillRect(x + 10, enemy.y + 4 + bob, 6, 6);
+        this.ctx.fillRect(x + 28, enemy.y + 4 + bob, 6, 6);
+        this.ctx.fillStyle = rgb(PALETTE.white);
+        if (enemy.kind === "ciberataque") this.ctx.fillRect(x + 9, enemy.y + 28 + bob, 26, 5);
+        else if (enemy.kind === "falla_tecnologica") {
+          this.ctx.fillRect(x + 12, enemy.y + 29 + bob, 6, 4);
+          this.ctx.fillRect(x + 24, enemy.y + 29 + bob, 6, 4);
+        } else if (enemy.kind === "exposicion_info") {
+          this.ctx.fillRect(x + 10, enemy.y + 29 + bob, 10, 4);
+          this.ctx.fillRect(x + 24, enemy.y + 29 + bob, 10, 4);
+        } else {
+          this.ctx.fillRect(x + 9, enemy.y + 30 + bob, 10, 4);
+          this.ctx.fillRect(x + 25, enemy.y + 30 + bob, 10, 4);
+        }
+      }
+
+      drawFlag() {
+        const x = FLAG_X - this.cameraX;
+        this.ctx.fillStyle = rgb(PALETTE.white);
+        this.ctx.fillRect(x, 150, 12, FLOOR_Y - 150);
+        this.ctx.fillStyle = rgb(PALETTE.ink);
+        this.ctx.fillRect(x - 30, FLOOR_Y - 24, 70, 24);
+        this.ctx.fillStyle = "rgb(27,208,111)";
+        this.ctx.beginPath();
+        this.ctx.moveTo(x + 12, 176);
+        this.ctx.lineTo(x + 176, 232);
+        this.ctx.lineTo(x + 12, 288);
+        this.ctx.closePath();
+        this.ctx.fill();
+      }
+
+      getPlayerSpriteFrameIndex() {
+        const airborne = this.player.airFrames >= 3 && Math.abs(this.player.vy) > 0.9;
+        if (airborne) return this.player.face >= 0 ? 3 : 4;
+        if (Math.abs(this.player.vx) > 0.35) return this.player.face >= 0 ? 2 : 1;
+        return 0;
+      }
+
+      drawSpriteAtBaseline(frameIndex, centerX, baselineY) {
+        const frame = this.spriteFrames[frameIndex];
+        if (!frame) return false;
+        this.ctx.drawImage(
+          frame.sheet,
+          frame.sx,
+          frame.sy,
+          frame.sw,
+          frame.sh,
+          Math.round(centerX - frame.dw / 2),
+          Math.round(baselineY - frame.dh),
+          frame.dw,
+          frame.dh
+        );
+        return true;
+      }
+
+      drawGofsiFallback(x, y, scale, pose) {
+        const pix = (px, py, w = 1, h = 1, color = PALETTE.outline) => {
+          this.ctx.fillStyle = rgb(color);
+          this.ctx.fillRect(x + px * scale, y + py * scale, w * scale, h * scale);
+        };
+        const headRows = [[8, 6], [6, 10], [5, 12], [4, 14], [3, 16], [3, 16], [3, 16], [4, 14], [5, 12]];
+        headRows.forEach(([sx, sw], row) => pix(sx, row, sw, 1, PALETTE.outline));
+        const fillRows = [[9, 4], [7, 8], [6, 10], [5, 12], [4, 14], [4, 14], [4, 14], [5, 12], [6, 10]];
+        fillRows.forEach(([sx, sw], row) => pix(sx, row, sw, 1, PALETTE.fur));
+        pix(7, 2, 8, 1, PALETTE.furLight);
+        pix(7, 5, 2, 2, [30, 30, 30]);
+        pix(13, 5, 2, 2, [30, 30, 30]);
+        pix(10, 6, 2, 2, PALETTE.ink);
+        pix(9, 7, 4, 1, PALETTE.skin);
+        pix(10, 8, 2, 2, PALETTE.tongue);
+        pix(6, 10, 10, 1, PALETTE.outline);
+        pix(5, 11, 12, 1, PALETTE.outline);
+        pix(6, 12, 10, 3, PALETTE.shirt);
+        pix(7, 13, 8, 1, PALETTE.shirtDark);
+        pix(6, 15, 10, 2, PALETTE.short);
+        pix(7, 15, 8, 1, PALETTE.shortDark);
+        pix(5, 12, 1, 3, PALETTE.skin);
+        pix(16, 12, 1, 3, PALETTE.skin);
+        pix(8, 17, 2, 2, PALETTE.skin);
+        pix(12, 17, 2, 2, PALETTE.skin);
+        pix(6, 19, 5, 1, PALETTE.white);
+        pix(11, 19, 5, 1, PALETTE.white);
+      }
+
+      drawPlayer() {
+        if (this.player.invuln > 0 && Math.floor(this.player.invuln * 10) % 2 === 0) return;
+        const centerX = this.player.x - this.cameraX + this.player.w / 2;
+        const baselineY = this.player.y + this.player.h;
+        if (this.drawSpriteAtBaseline(this.getPlayerSpriteFrameIndex(), centerX, baselineY)) return;
+        this.drawGofsiFallback(centerX - 12, this.player.y - 2, 3, "idle");
+      }
+
+      drawEffects() {
+        for (const r of this.rings) {
+          const x = r.x - this.cameraX;
+          const y = r.y;
+          if (x < -220 || x > WIDTH + 220) continue;
+          const alpha = clamp(r.life / 0.5, 0, 1);
+          this.ctx.strokeStyle = rgba(r.color, alpha);
+          this.ctx.lineWidth = 4;
+          this.ctx.beginPath();
+          this.ctx.arc(x, y, r.radius, 0, Math.PI * 2);
+          this.ctx.stroke();
+        }
+        for (const p of this.particles) {
+          const x = p.x - this.cameraX;
+          if (x < -40 || x > WIDTH + 40) continue;
+          const ratio = clamp(p.life / Math.max(0.01, p.maxLife), 0, 1);
+          const size = Math.max(1, Math.floor(p.size * ratio));
+          this.ctx.fillStyle = rgba(p.color, ratio);
+          this.ctx.fillRect(x, p.y, size, size);
+        }
+        for (const t of this.floatingTexts) {
+          const x = t.x - this.cameraX;
+          const fontKey = t.size === "big" ? "title" : "bodyBold";
+          this.drawText(t.text, x + 3, t.y + 3, fontKey, PALETTE.ink);
+          this.drawText(t.text, x, t.y, fontKey, t.color);
+        }
+      }
+
+      drawScreenFlash() {
+        if (this.screenFlash.alpha <= 0) return;
+        this.ctx.fillStyle = rgba(this.screenFlash.color, clamp(this.screenFlash.alpha / 255, 0, 1));
+        this.ctx.fillRect(0, 0, WIDTH, HEIGHT);
+      }
+
+      drawHud() {
+        this.ctx.fillStyle = rgb(PALETTE.ink);
+        this.ctx.fillRect(0, 0, WIDTH, 104);
+        const meta = this.currentLevelMeta();
+        const progress = clamp(this.player.x / Math.max(1, FLAG_X), 0, 1);
+        const zoneColor = this.riskColor(this.currentZone);
+        const totals = this.campaignTotals();
+        const data = [
+          ["VIDAS", pad(this.player.lives, 2)],
+          ["PUNTAJE", pad(totals.score, 6)],
+          ["PREGUNTAS", `${totals.questions}/${totals.questions_total}`],
+          ["TIEMPO", formatTime(totals.time)],
+          ["SOPORTE", pad(this.player.assist, 2)]
+        ];
+        const column = WIDTH / 5;
+        data.forEach(([label, value], i) => {
+          const x = 26 + i * column;
+          this.drawText(label, x, 14, "small", [180, 196, 235]);
+          this.drawText(value, x, 34, "bodyBold", PALETTE.white);
+        });
+        this.drawText(`${meta.label} · ${meta.title}`, 26, 72, "bodyBold", PALETTE.cyan);
+        roundRect(this.ctx, 520, 70, 170, 24, 12, rgb(zoneColor));
+        this.drawText(`Zona ${this.currentZone.toUpperCase()}`, 534, 74, "small", PALETTE.ink);
+        roundRect(this.ctx, 710, 70, 230, 24, 12, "rgb(20,34,80)");
+        this.drawText(`Estrategia: ${meta.treatment.replace(/^./, (c) => c.toUpperCase())}`, 724, 74, "small", PALETTE.white);
+        roundRect(this.ctx, 972, 72, 320, 18, 9, "rgb(20,34,80)");
+        roundRect(this.ctx, 974, 74, (320 - 4) * progress, 14, 7, rgb(PALETTE.cyan));
+        this.drawText(`Ruta ${Math.floor(progress * 100)}%`, 1304, 69, "small", PALETTE.white);
+      }
+
+      drawToast() {
+        if (this.toastTimer <= 0 || !this.toastText) return;
+        this.ctx.font = FONTS.body;
+        const w = Math.min(860, this.ctx.measureText(this.toastText).width + 42);
+        const x = WIDTH / 2 - w / 2;
+        const y = HEIGHT - 64;
+        roundRect(this.ctx, x, y, w, 48, 24, rgb(PALETTE.ink));
+        this.drawText(this.toastText, x + 18, y + 12, "body", PALETTE.white, w - 36);
+      }
+
+      drawMenuScene() {
+        this.drawGradientBg();
+        roundRect(this.ctx, 70, 70, WIDTH - 140, HEIGHT - 140, 28, rgb(PALETTE.ink));
+        this.ctx.fillStyle = "rgb(11,26,66)";
+        this.ctx.beginPath();
+        this.ctx.arc(1000, 480, 320, 0, Math.PI * 2);
+        this.ctx.fill();
+        this.drawText("adn", 120, 160, "hero", PALETTE.white);
+        this.drawText("riesgos", 390, 190, "title", PALETTE.cyan);
+        this.drawText(
+          "Recorre tres módulos de formación y enfrenta riesgos operacionales con un lenguaje de plataforma clásico, pero con lógica.",
+          120,
+          300,
+          "body",
+          [220, 230, 255],
+          520
+        );
+        ["1. Gestión y evaluación del riesgo", "2. Tratamiento del riesgo", "3. Continuidad del Negocios"].forEach((item, i) => {
+          this.drawText(item, 120, 440 + i * 38, "bodyBold", PALETTE.white);
+        });
+        roundRect(this.ctx, 120, 580, 200, 50, 12, "rgb(20,34,80)", rgb(PALETTE.white), 2);
+        this.drawText(this.inputUser || "", 132, 592, "body", PALETTE.white);
+        if (this.cursorVisible) {
+          this.ctx.strokeStyle = rgb(PALETTE.white);
+          this.ctx.lineWidth = 3;
+          this.ctx.beginPath();
+          const cursorX = 138 + this.ctx.measureText(this.inputUser || "").width;
+          this.ctx.moveTo(cursorX, 596);
+          this.ctx.lineTo(cursorX, 618);
+          this.ctx.stroke();
+        }
+        this.drawText("@sistecredito.com", 340, 592, "body", [180, 200, 255]);
+        if (this.inputError) this.drawText(this.inputError, 120, 650, "small", [255, 80, 80]);
+
+        const targetH = 470;
+        const ratio = targetH / this.assets.gofsi.height;
+        const targetW = Math.max(220, this.assets.gofsi.width * ratio);
+        this.ctx.save();
+        this.ctx.shadowColor = "rgba(255,255,255,0.22)";
+        this.ctx.shadowBlur = 34;
+        this.ctx.drawImage(this.assets.gofsi, 1000 - targetW / 2, 480 - targetH / 2, targetW, targetH);
+        this.ctx.restore();
+        for (const button of this.menuButtons) button.draw(this);
+      }
+
+      drawTopScene() {
+        this.drawGradientBg();
+        roundRect(this.ctx, 70, 70, WIDTH - 140, HEIGHT - 140, 28, rgb(PALETTE.ink));
+        const tableWidth = 520;
+        const gap = 120;
+        const startX = (WIDTH - (tableWidth * 2 + gap)) / 2;
+        this.drawText("MEJORES RECORRIDOS", startX, 120, "title", PALETTE.white);
+        let ranking = (this.bestRun && Array.isArray(this.bestRun.ranking)) ? this.bestRun.ranking.slice() : [];
+        if (!ranking.length) ranking = Array.from({ length: 10 }, () => ({ user: "######", score: 0, time: 1800, lives: 3 }));
+        ranking.sort((a, b) => (b.score || 0) - (a.score || 0) || (a.time || 999999) - (b.time || 999999) || (b.lives || 0) - (a.lives || 0));
+        ranking = ranking.slice(0, 10);
+        const drawColumn = (data, xBase, startIndex) => {
+          const cols = { num: 20, user: 120, pts: 260, time: 370, lives: 480 };
+          this.drawText("#", xBase + cols.num - 10, 210, "small", [150, 170, 220]);
+          this.drawText("Usuario", xBase + cols.user - 30, 210, "small", [150, 170, 220]);
+          this.drawText("Pts", xBase + cols.pts - 10, 210, "small", [150, 170, 220]);
+          this.drawText("Tiempo", xBase + cols.time - 25, 210, "small", [150, 170, 220]);
+          this.drawText("Vidas", xBase + cols.lives - 20, 210, "small", [150, 170, 220]);
+          data.forEach((item, i) => {
+            const y = 240 + i * 70;
+            roundRect(this.ctx, xBase, y, 520, 58, 18, "rgb(20,34,80)");
+            this.drawCenteredText(`${startIndex + i}.`, xBase + cols.num, y + 29, "bodyBold", [170, 185, 230]);
+            this.drawCenteredText(String(item.user || "--").slice(0, 8), xBase + cols.user, y + 29, "bodyBold", PALETTE.white);
+            this.drawCenteredText(pad(item.score || 0, 5), xBase + cols.pts, y + 29, "bodyBold", PALETTE.cyan);
+            this.drawCenteredText(` ${formatTime(item.time || 0)}`, xBase + cols.time, y + 29, "bodyBold", PALETTE.cyan);
+            this.drawCenteredText(pad(item.lives || 0, 2), xBase + cols.lives, y + 29, "bodyBold", PALETTE.cyan);
+          });
+        };
+        drawColumn(ranking.slice(0, 5), startX, 1);
+        drawColumn(ranking.slice(5, 10), startX + tableWidth + gap, 6);
+        for (const button of this.topButtons) button.draw(this);
+      }
+
+      drawFinishScene() {
+        this.drawGradientBg();
+        const panel = { x: 70, y: 70, w: WIDTH - 140, h: HEIGHT - 140 };
+        roundRect(this.ctx, panel.x, panel.y, panel.w, panel.h, 28, rgb(PALETTE.ink));
+        const meta = this.currentLevelMeta();
+        const finalLevel = this.currentLevelIndex === this.levelOrder.length - 1;
+        this.finishButtons[0].text = finalLevel ? "REINICIAR CAMPAÑA" : "SIGUIENTE NIVEL";
+        this.drawText(finalLevel ? "RECORRIDO CERRADO" : "MÓDULO SUPERADO", 120, 120, "title", PALETTE.white);
+        this.drawText(`${meta.label} · ${meta.title}`, 120, 182, "bodyBold", PALETTE.cyan);
+        const totals = this.campaignTotals();
+        const rows = [
+          ["Puntaje acumulado", pad(totals.score, 6)],
+          ["Preguntas acumuladas", `${totals.questions}/${totals.questions_total}`],
+          ["Tiempo acumulado", formatTime(totals.time)],
+          ["Vidas", pad(totals.lives, 2)]
+        ];
+        rows.forEach(([label, value], i) => {
+          const y = 260 + i * 74;
+          roundRect(this.ctx, 120, y, 780, 58, 18, "rgb(20,34,80)");
+          this.drawText(pad(i + 1, 2), 134, y + 16, "bodyBold", [170, 185, 230]);
+          this.drawText(label, 190, y + 16, "bodyBold", PALETTE.white);
+          this.drawText(value, 720, y + 16, "bodyBold", PALETTE.cyan);
+        });
+        const message = finalLevel ? "¡Lo lograste! Descarga tu certificado y completa la encuesta." : `Sigue con ${LEVEL_META[this.levelOrder[this.currentLevelIndex + 1]].title}.`;
+        this.drawWrappedCentered(message, WIDTH / 2, 620, "title", [220, 230, 255], 1120);
+        for (const button of this.finishButtons) button.draw(this);
+
+        this.downloadBtn = null;
+        this.rateBtn = null;
+        if (finalLevel) {
+          this.downloadBtn = { x: panel.x + panel.w / 2 + 300, y: 320, w: 250, h: 45 };
+          roundRect(this.ctx, this.downloadBtn.x, this.downloadBtn.y, this.downloadBtn.w, this.downloadBtn.h, 10, "rgb(0,200,120)");
+          this.drawCenteredText("DESCARGAR CERTIFICADO", this.downloadBtn.x + this.downloadBtn.w / 2, this.downloadBtn.y + this.downloadBtn.h / 2, "small", [0, 0, 0]);
+          this.rateBtn = { x: this.downloadBtn.x - 30, y: this.downloadBtn.y + this.downloadBtn.h + 50, w: 300, h: 45 };
+          roundRect(this.ctx, this.rateBtn.x, this.rateBtn.y, this.rateBtn.w, this.rateBtn.h, 10, "rgb(0,150,255)");
+          this.drawCenteredText("CALIFICA TU EXPERIENCIA", this.rateBtn.x + this.rateBtn.w / 2, this.rateBtn.y + this.rateBtn.h / 2, "small", PALETTE.white);
+          if (this.downloadMessage) {
+            this.drawCenteredText(this.downloadMessage, this.downloadBtn.x + this.downloadBtn.w / 2, this.downloadBtn.y + this.downloadBtn.h + 25, "small", [0, 255, 150]);
+          }
+        }
+      }
+
+      drawGameoverScene() {
+        this.drawGradientBg();
+        roundRect(this.ctx, 70, 70, WIDTH - 400, HEIGHT - 140, 28, rgb(PALETTE.ink));
+        this.drawText("GAME OVER", 120, 120, "hero", [255, 190, 180]);
+        this.drawText("El intento terminó. Puedes reintentar con nuevas preguntas aleatorias o volver al menú.", 120, 230, "body", [220, 230, 255], 760);
+        const result = this.lastResult || { score: this.player.score, lives: this.player.lives, time: Math.floor(this.elapsed), questions: this.answeredCount() };
+        const rows = [
+          ["Puntaje", pad(result.score, 6)],
+          ["Preguntas", `${result.questions}/${this.gates.length}`],
+          ["Tiempo", formatTime(result.time)],
+          ["Vidas", pad(result.lives, 2)]
+        ];
+        rows.forEach(([label, value], i) => {
+          const y = 360 + i * 74;
+          roundRect(this.ctx, 120, y, 780, 58, 18, "rgb(20,34,80)");
+          this.drawText(pad(i + 1, 2), 134, y + 16, "bodyBold", [170, 185, 230]);
+          this.drawText(label, 190, y + 16, "bodyBold", PALETTE.white);
+          this.drawText(value, 720, y + 16, "bodyBold", PALETTE.cyan);
+        });
+        const frame = this.spriteFrames[1];
+        if (frame) {
+          const scale = 2.5;
+          this.ctx.drawImage(frame.sheet, frame.sx, frame.sy, frame.sw, frame.sh, 1000 - frame.dw * scale / 2, 480 - frame.dh * scale / 2, frame.dw * scale, frame.dh * scale);
+        } else {
+          this.ctx.drawImage(this.assets.gofsi, 890, 250, 260, 360);
+        }
+        for (const button of this.gameoverButtons) button.draw(this);
+      }
+
+      drawQuestionModal() {
+        if (this.modal !== "question" || !this.currentGate) return;
+        this.ctx.fillStyle = "rgba(10,20,44,0.51)";
+        this.ctx.fillRect(0, 0, WIDTH, HEIGHT);
+        const panel = { x: 120, y: 120, w: WIDTH - 240, h: HEIGHT - 220 };
+        roundRect(this.ctx, panel.x, panel.y, panel.w, panel.h, 26, rgb(PALETTE.ink), "rgba(255,255,255,0.30)", 2);
+        const question = this.currentGate.question;
+        roundRect(this.ctx, panel.x + 34, panel.y + 28, 440, 36, 18, "rgb(20,34,80)");
+        const badgeText = `${question.topic} · ${(question.riskLevel || "medio").toUpperCase()} · ${(question.module || "general").replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase())}`;
+        this.drawText(badgeText, panel.x + 48, panel.y + 36, "small", PALETTE.white);
+        this.drawText(question.context, panel.x + 34, panel.y + 90, "title", PALETTE.white, panel.w - 68);
+        const questionLines = this.wrapText(question.question, "body", panel.w - 108);
+        const textHeight = questionLines.length * LINE_HEIGHT.body + (questionLines.length - 1) * 6;
+        const ctxRect = { x: panel.x + 34, y: panel.y + 230, w: panel.w - 68, h: textHeight + 40 };
+        this.drawText(question.question, ctxRect.x + 20, ctxRect.y + (ctxRect.h - textHeight) / 2, "body", [170, 185, 220], ctxRect.w - 40);
+        this.optionRects = [];
+        question.options.forEach((option, index) => {
+          const rect = { x: panel.x + 34, y: panel.y + 320 + index * 74, w: panel.w - 68, h: 58 };
+          let optionColor = [18, 34, 80];
+          if (this.questionContinueEnabled) {
+            if (index === question.correctIndex) optionColor = [36, 145, 82];
+            else if (index === this.selectedOption) optionColor = [138, 54, 54];
+          }
+          roundRect(this.ctx, rect.x, rect.y, rect.w, rect.h, 18, rgb(optionColor), "rgba(255,255,255,0.28)");
+          this.drawText(option, rect.x + 16, rect.y + 16, "body", PALETTE.white, rect.w - 32);
+          this.optionRects.push({ rect, index });
+        });
+        let feedbackColor = PALETTE.white;
+        if (this.questionFeedbackKind === "correct") feedbackColor = PALETTE.correct;
+        else if (this.questionFeedbackKind === "wrong") feedbackColor = PALETTE.wrong;
+        this.drawText(this.questionFeedback, panel.x + 34, panel.y + panel.h - 110, "body", feedbackColor, panel.w - 320);
+        this.questionContinueButton.rect.x = panel.x + panel.w - 254;
+        this.questionContinueButton.rect.y = panel.y + panel.h - 82;
+        this.questionContinueButton.draw(this);
+      }
+
+      drawCoursePanel(title, subtitle, sections, accent = [80, 179, 255]) {
+        this.ctx.fillStyle = "rgba(10,20,44,0.64)";
+        this.ctx.fillRect(0, 0, WIDTH, HEIGHT);
+        const panel = { x: 90, y: 70, w: WIDTH - 180, h: HEIGHT - 140 };
+        roundRect(this.ctx, panel.x, panel.y, panel.w, panel.h, 28, rgb(PALETTE.ink), rgb(accent), 3);
+        roundRect(this.ctx, panel.x + 36, panel.y + 30, 230, 34, 17, rgb(accent));
+        this.drawText("MICROCURSO", panel.x + 56, panel.y + 37, "small", PALETTE.ink);
+        const titleRect = this.drawText(title, panel.x + 36, panel.y + 92, "title", PALETTE.white, panel.w - 72);
+        const subtitleRect = this.drawText(subtitle, panel.x + 36, titleRect.bottom + 14, "body", [220, 230, 255], panel.w - 72);
+        let y = subtitleRect.bottom + 24;
+        for (const [label, body] of sections) {
+          const lines = this.wrapText(body, "body", panel.w - 108);
+          const sectionH = Math.max(96, 18 + LINE_HEIGHT.bodyBold + 12 + lines.length * LINE_HEIGHT.body + (lines.length - 1) * 6 + 18);
+          roundRect(this.ctx, panel.x + 36, y, panel.w - 72, sectionH, 18, "rgb(20,34,80)", "rgba(255,255,255,0.30)");
+          this.drawText(label, panel.x + 54, y + 14, "bodyBold", accent);
+          this.drawText(body, panel.x + 54, y + 14 + LINE_HEIGHT.bodyBold + 10, "body", PALETTE.white, panel.w - 108);
+          y += sectionH + 14;
+        }
+        this.courseContinueButton.rect.x = panel.x + panel.w - 258;
+        this.courseContinueButton.rect.y = panel.y + panel.h - 74;
+        this.courseContinueButton.draw(this);
+      }
+
+      drawTreatmentModal() {
+        if (this.modal !== "treatment") return;
+        const kind = this.treatmentKind || "reduce";
+        const theme = TOOL_THEMES[kind] || TOOL_THEMES.reduce;
+        const content = {
+          avoid: [
+            "Tratamiento del riesgo · Evitar",
+            "Evitar significa eliminar la exposición: cambiar, detener o rediseñar una actividad para que el riesgo no se materialice.",
+            "Si un proceso manual genera errores críticos, se puede evitar el riesgo eliminando ese paso y usando una validación automática obligatoria.",
+            "En el juego lo recogiste como E: representa esquivar una situación que no conviene asumir."
+          ],
+          reduce: [
+            "Tratamiento del riesgo · Reducir",
+            "Reducir significa aplicar controles para disminuir la probabilidad, el impacto o ambos, sin detener la actividad.",
+            "Ante errores humanos frecuentes, una lista de chequeo, doble validación o capacitación reduce la probabilidad de falla.",
+            "En el juego lo recogiste como R: activa protección temporal, igual que un control reduce exposición."
+          ],
+          transfer: [
+            "Tratamiento del riesgo · Transferir",
+            "Transferir significa compartir o trasladar parte del impacto a un tercero, sin eliminar la responsabilidad de gestionarlo.",
+            "Un seguro, un proveedor especializado o un acuerdo de soporte pueden transferir parte del impacto operativo.",
+            "En el juego lo recogiste como T: Ganas una vida como es recibir un apoyo adicional para absorber un impacto."
+          ],
+          accept: [
+            "Tratamiento del riesgo · Aceptar",
+            "Aceptar significa asumir conscientemente un riesgo cuando está dentro del apetito definido y su costo de control no compensa.",
+            "Una mejora menor puede dejarse monitoreada si el impacto es bajo y controlarla cuesta más que el beneficio esperado.",
+            "En el juego lo recogiste como A: aceptas un riesgo controlado a cambio de recompensa."
+          ]
+        }[kind];
+        this.drawCoursePanel(content[0], "Los tratamientos convierten la evaluación del riesgo en una decisión práctica y controlada.", [
+          ["Definición", content[1]],
+          ["Ejemplo práctico", content[2]],
+          ["Lectura en el juego", content[3]]
+        ], theme.color);
+      }
+
+      drawInstructionsModal() {
+        if (this.modal !== "instructions") return;
+        const accent = PALETTE.cyan;
+        this.ctx.fillStyle = "rgba(10,20,44,0.64)";
+        this.ctx.fillRect(0, 0, WIDTH, HEIGHT);
+        const panel = { x: 52, y: 28, w: WIDTH - 104, h: HEIGHT - 56 };
+        roundRect(this.ctx, panel.x, panel.y, panel.w, panel.h, 28, rgb(PALETTE.ink), rgb(accent), 3);
+        roundRect(this.ctx, panel.x + 32, panel.y + 24, 230, 34, 17, rgb(accent));
+        this.drawText("MICROCURSO", panel.x + 52, panel.y + 31, "small", PALETTE.ink);
+        const titleRect = this.drawText("Instrucciones del recorrido", panel.x + 32, panel.y + 84, "title", PALETTE.white, panel.w - 64);
+        const subtitleRect = this.drawText("Avanza por los módulos de gestión de riesgos, responde controles y usa los elementos del mapa para tomar mejores decisiones.", panel.x + 32, titleRect.bottom + 12, "body", [220, 230, 255], panel.w - 64);
+        const contentY = subtitleRect.bottom + 22;
+        const leftX = panel.x + 32;
+        const leftW = 430;
+        const gap = 18;
+        const rightX = leftX + leftW + gap;
+        const rightW = panel.w - 64 - leftW - gap;
+        const infoCard = (x, y, w, h, title) => {
+          roundRect(this.ctx, x, y, w, h, 18, "rgb(20,34,80)", "rgba(255,255,255,0.30)");
+          this.drawText(title, x + 18, y + 14, "bodyBold", accent);
+          return { x, y, w, h, bottom: y + h };
+        };
+        const controlsRect = infoCard(leftX, contentY, leftW, 194, "Controles");
+        this.drawText("W, flecha arriba o espacio: saltar. A/D o flechas izquierda/derecha: moverse. R: reiniciar. Esc: volver al menú.", controlsRect.x + 18, controlsRect.y + 52, "body", PALETTE.white, controlsRect.w - 36);
+        const riskRect = infoCard(leftX, controlsRect.bottom + gap, leftW, 300, "Nivel de riesgo");
+        const riskText = this.drawText("Los marcos verde, amarillo y rojo representan riesgo bajo, medio y alto. A mayor nivel, mayor impacto en la organización.", riskRect.x + 18, riskRect.y + 52, "body", PALETTE.white, riskRect.w - 36);
+        const riskY = Math.max(riskText.bottom + 18, riskRect.y + riskRect.h - 78);
+        [["Bajo", [80, 212, 132]], ["Medio", [255, 203, 80]], ["Alto", [255, 92, 92]]].forEach(([label, color], idx) => {
+          const bx = riskRect.x + 18 + idx * 128;
+          roundRect(this.ctx, bx, riskY, 104, 56, 12, "rgb(12,22,52)", rgb(color), 4);
+          this.drawText(label, bx + 22, riskY + 18, "small", PALETTE.white);
+        });
+        const interactiveRect = infoCard(rightX, contentY, rightW, 462, "Elementos interactivos");
+        const infoText = this.drawText("Las preguntas se indican en módulos y controles del recorrido: Riesgo, Tratamiento y Continuidad. Recuerda que sin ellas no puedes avanzar; las cajas R, T, A y E explican tratamientos del riesgo.", interactiveRect.x + 18, interactiveRect.y + 52, "body", PALETTE.white, interactiveRect.w - 36);
+        const drawModuleChip = (x, y, letter, label, color) => {
+          roundRect(this.ctx, x, y, 175, 62, 18, "rgb(13,27,66)", rgb(color), 3);
+          roundRect(this.ctx, x + 12, y + 12, 38, 38, 11, rgb(color));
+          this.drawText(letter, x + 23, y + 20, "bodyBold", PALETTE.ink);
+          this.drawText(label, x + 60, y + 21, "small", PALETTE.white);
+        };
+        const drawToolTile = (x, y, letter, label, color) => {
+          roundRect(this.ctx, x, y, 118, 92, 18, "rgb(13,27,66)", rgb(color), 3);
+          roundRect(this.ctx, x + 39, y + 13, 40, 38, 11, rgb(color));
+          this.drawText(letter, x + 51, y + 21, "bodyBold", PALETTE.ink);
+          this.drawText(label, x + 12, y + 62, "small", PALETTE.white, 94);
+        };
+        const qtcTitleY = infoText.bottom + 20;
+        this.drawText("Ejemplo visual RTC", interactiveRect.x + 18, qtcTitleY, "bodyBold", accent);
+        const qtcY = qtcTitleY + 38;
+        const qtcX = interactiveRect.x + 18;
+        drawModuleChip(qtcX, qtcY, "R", "Riesgo", [92, 202, 255]);
+        drawModuleChip(qtcX + 192, qtcY, "T", "Tratamiento", [170, 133, 255]);
+        drawModuleChip(qtcX + 384, qtcY, "C", "Continuidad", [88, 224, 156]);
+        const rtaeTitleY = qtcY + 82;
+        this.drawText("Ejemplo visual RTAE", interactiveRect.x + 18, rtaeTitleY, "bodyBold", accent);
+        const rtaeY = rtaeTitleY + 38;
+        [["R", "Reducir", TOOL_THEMES.reduce.color], ["T", "Transferir", TOOL_THEMES.transfer.color], ["A", "Aceptar", TOOL_THEMES.accept.color], ["E", "Evitar", TOOL_THEMES.avoid.color]].forEach(([letter, label, color], idx) => {
+          drawToolTile(qtcX + idx * 136, rtaeY, letter, label, color);
+        });
+        this.courseContinueButton.rect.x = panel.x + panel.w - 258;
+        this.courseContinueButton.rect.y = panel.y + panel.h - 74;
+        this.courseContinueButton.draw(this);
+      }
+
+      saveDiploma() {
+        const totals = this.campaignTotals();
+        const canvas = document.createElement("canvas");
+        canvas.width = 1920;
+        canvas.height = 1080;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(this.assets.diploma, 0, 0, canvas.width, canvas.height);
+        const user = this.inputUser || "PLAYER";
+        ctx.fillStyle = "white";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.font = FONTS.diplomaUser;
+        ctx.fillText(`@${user}`, canvas.width / 2, canvas.height / 2 + 350);
+        ctx.font = FONTS.diplomaCode;
+        ctx.fillText(`Cod: ${pad(totals.score, 5)}${pad(totals.lives, 2)}${pad(totals.time, 4)}`, canvas.width / 2, canvas.height / 2 + 420);
+        const link = document.createElement("a");
+        link.download = `Certificado_Riesgos_${user.replace(/[^a-z0-9_.-]/gi, "_")}.png`;
+        link.href = canvas.toDataURL("image/png");
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        this.downloadMessage = "✅ Certificado descargado";
+        this.downloadTimer = 10;
+      }
+
+      handleMouse(pos) {
+        if (this.currentScene === "menu") {
+          if (this.menuButtons[0].hit(pos)) {
+            if (this.inputUser.trim().length < 4) {
+              this.inputError = "Escribe tu nombre de usuario/correo de la organización ej: nvargas";
+              return;
+            }
+            this.inputError = "";
+            this.startNewCampaign();
+            this.startGame();
+          } else if (this.menuButtons[1].hit(pos)) {
+            this.openTop();
+          } else if (this.menuButtons[2].hit(pos)) {
+            window.close();
+          }
+          return;
+        }
+        if (this.currentScene === "top") {
+          if (this.topButtons[0].hit(pos) || this.topButtons[1].hit(pos)) this.currentScene = "menu";
+          return;
+        }
+        if (this.currentScene === "finish") {
+          if (this.finishButtons[0].hit(pos)) this.nextLevel();
+          else if (this.finishButtons[1].hit(pos)) {
+            this.resetRun(true);
+            this.startGame();
+          } else if (this.finishButtons[2].hit(pos)) {
+            this.currentScene = "menu";
+          } else if (this.downloadBtn && rectsIntersect({ x: pos.x, y: pos.y, w: 1, h: 1 }, this.downloadBtn)) {
+            this.saveDiploma();
+          } else if (this.rateBtn && rectsIntersect({ x: pos.x, y: pos.y, w: 1, h: 1 }, this.rateBtn)) {
+            window.open("URL FORMS", "_blank");
+          }
+          return;
+        }
+        if (this.currentScene === "gameover") {
+          if (this.gameoverButtons[0].hit(pos)) {
+            this.resetRun(true);
+            this.startGame();
+          } else if (this.gameoverButtons[1].hit(pos)) {
+            this.currentScene = "menu";
+          }
+          return;
+        }
+        if (this.modal === "instructions" || this.modal === "treatment") {
+          if (this.courseContinueButton.hit(pos)) this.closeCourseModal();
+          return;
+        }
+        if (this.modal === "question") {
+          for (const { rect, index } of this.optionRects) {
+            if (rectsIntersect({ x: pos.x, y: pos.y, w: 1, h: 1 }, rect)) {
+              this.answerQuestion(index);
+              return;
+            }
+          }
+          if (this.questionContinueEnabled && this.questionContinueButton.hit(pos)) this.closeQuestion();
+        }
+      }
+
+      handleKeyDown(event) {
+        if (event.key === "F9") this.currentScene = "finish";
+        if (this.currentScene === "menu" && this.inputActive) {
+          this.inputError = "";
+          if (event.key === "Backspace") {
+            this.inputUser = this.inputUser.slice(0, -1);
+            event.preventDefault();
+          } else if (event.key.length === 1 && this.inputUser.length < 12) {
+            this.inputUser += event.key;
+          }
+        }
+        if (this.currentScene === "finish") {
+          if (event.key === "Enter") this.nextLevel();
+          else if (event.key.toLowerCase() === "r") {
+            this.resetRun(true);
+            this.startGame();
+          } else if (event.key.toLowerCase() === "m") {
+            this.currentScene = "menu";
+          }
+          return;
+        }
+        if (this.currentScene === "gameover") {
+          if (event.key === "Enter") {
+            this.resetRun(true);
+            this.startGame();
+          } else if (event.key.toLowerCase() === "m") {
+            this.currentScene = "menu";
+          }
+          return;
+        }
+        if (this.modal === "instructions" || this.modal === "treatment") {
+          if (["Enter", " ", "Spacebar"].includes(event.key)) this.closeCourseModal();
+          return;
+        }
+        if (this.modal === "question") {
+          if (event.key === "1") this.answerQuestion(0);
+          else if (event.key === "2") this.answerQuestion(1);
+          else if (event.key === "3") this.answerQuestion(2);
+          else if (event.key === "Enter" && this.questionContinueEnabled) this.closeQuestion();
+          return;
+        }
+        if (event.key === "a" || event.key === "A" || event.key === "ArrowLeft") this.keys.left = true;
+        if (event.key === "d" || event.key === "D" || event.key === "ArrowRight") this.keys.right = true;
+        if (event.key === "w" || event.key === "W" || event.key === "ArrowUp" || event.key === " ") {
+          this.keys.jump = true;
+          if (this.currentScene === "game") this.player.jumpBuffer = 8;
+          event.preventDefault();
+        }
+        if (event.key.toLowerCase() === "r" && this.currentScene === "game") {
+          this.resetRun(true);
+          this.startGame();
+        }
+        if (event.key === "Escape") {
+          this.currentScene = "menu";
+          this.modal = null;
+        }
+      }
+
+      handleKeyUp(event) {
+        if (event.key === "a" || event.key === "A" || event.key === "ArrowLeft") this.keys.left = false;
+        if (event.key === "d" || event.key === "D" || event.key === "ArrowRight") this.keys.right = false;
+        if (event.key === "w" || event.key === "W" || event.key === "ArrowUp" || event.key === " ") {
+          this.keys.jump = false;
+          if (this.player) this.player.jumpCut = false;
+        }
+      }
+
+      draw() {
+        const offset = this.shakeTimer > 0 && this.shakeMagnitude > 0
+          ? { x: (Math.random() * 2 - 1) * this.shakeMagnitude, y: (Math.random() * 2 - 1) * this.shakeMagnitude }
+          : { x: 0, y: 0 };
+        this.ctx.save();
+        this.ctx.clearRect(0, 0, WIDTH, HEIGHT);
+        if (offset.x || offset.y) this.ctx.translate(offset.x, offset.y);
+        if (this.currentScene === "menu") this.drawMenuScene();
+        else if (this.currentScene === "top") this.drawTopScene();
+        else if (this.currentScene === "finish") this.drawFinishScene();
+        else if (this.currentScene === "gameover") this.drawGameoverScene();
+        else {
+          this.drawWorld();
+          this.drawHud();
+          this.drawQuestionModal();
+          this.drawTreatmentModal();
+          this.drawInstructionsModal();
+          this.drawToast();
+        }
+        this.ctx.restore();
+        this.drawScreenFlash();
+      }
+    }
+
+    async function boot() {
+      const canvas = document.getElementById("gameCanvas");
+      const status = document.getElementById("assetStatus");
+      const questionBank = Array.isArray(window.GOFSI_QUESTION_BANK) ? window.GOFSI_QUESTION_BANK : [];
+      const diplomaSource = window.GOFSI_DIPLOMA_DATA_URL || ASSET_PATHS.diploma;
+      const [amanecer, atardecer, noche, diploma, gofsi, sprite] = await Promise.all([
+        loadImage(ASSET_PATHS.amanecer),
+        loadImage(ASSET_PATHS.atardecer),
+        loadImage(ASSET_PATHS.noche),
+        loadImage(diplomaSource),
+        loadImage(ASSET_PATHS.gofsi),
+        loadImage(ASSET_PATHS.sprite)
+      ]);
+      const game = new Game(canvas, { amanecer, atardecer, noche, diploma, gofsi, sprite }, questionBank);
+      window.__gofsiGame = game;
+      status.classList.add("is-hidden");
+      setTimeout(() => status.remove(), 260);
+      let last = performance.now();
+      const loop = (now) => {
+        const dt = Math.min(0.05, Math.max(0.001, (now - last) / 1000));
+        last = now;
+        game.update(dt);
+        game.draw();
+        requestAnimationFrame(loop);
+      };
+      requestAnimationFrame(loop);
+    }
+
+    boot().catch((error) => {
+      const status = document.getElementById("assetStatus");
+      status.textContent = `Error de carga: ${error.message}`;
+      console.error(error);
+    });
+  })();
+  </script>
+</body>
+</html>
